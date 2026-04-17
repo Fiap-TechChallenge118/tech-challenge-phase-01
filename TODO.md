@@ -126,11 +126,11 @@
 ## ETAPA 3 — Engenharia e API
 
 ### 3.1 Refatoração
-- [ ] Garantir que todos os módulos em `src/` estão sem `print()`
-- [ ] Substituir todos os `print()` por `logging.getLogger(__name__).info()`
-- [ ] Criar `src/pipeline.py`:
+- [x] Garantir que todos os módulos em `src/` estão sem `print()`
+- [x] Substituir todos os `print()` por `logging.getLogger(__name__).info()`
+- [x] Criar `src/pipeline.py`:
   - Função `run_pipeline(data_path, config)` — orquestra preprocessamento + treino + avaliação + log MLflow
-- [ ] Salvar artefatos em `data/processed/`:
+- [x] Salvar artefatos em `data/processed/`:
   - Preprocessor: `joblib.dump(preprocessor, "data/processed/preprocessor.pkl")`
   - Modelo: `torch.save(model.state_dict(), "data/processed/model.pth")`
 
