@@ -135,10 +135,10 @@
   - Modelo: `torch.save(model.state_dict(), "data/processed/model.pth")`
 
 ### 3.2 API FastAPI
-- [ ] Criar `api/schemas.py`:
+- [x] Criar `api/schemas.py`:
   - `CustomerFeatures(BaseModel)` com todos os campos de input e tipos Pydantic
   - `PredictionResponse(BaseModel)` com `churn_probability: float` e `churn_prediction: bool`
-- [ ] Criar `api/main.py`:
+- [x] Criar `api/main.py`:
   - Carregar preprocessor e modelo no startup via `@app.on_event("startup")`
   - `GET /health` → retorna `{"status": "ok", "model_loaded": bool}`
   - `POST /predict` → recebe `CustomerFeatures`, retorna `PredictionResponse`
