@@ -191,7 +191,7 @@
   - Plano de retreino (frequência, trigger de degradação)
 
 ### 4.2 Plano de Monitoramento
-- [ ] Criar `docs/monitoring_plan.md` com:
+- [x] Criar `docs/monitoring_plan.md` com:
   - Métricas de modelo: F1 em produção, taxa de churn previsto vs real
   - Métricas de infraestrutura: latência p99, taxa de erro 5xx
   - Data drift: monitorar distribuição de features com PSI ou KS-test
