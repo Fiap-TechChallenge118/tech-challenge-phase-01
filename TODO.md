@@ -183,7 +183,7 @@
 ## ETAPA 4 — Documentação, Deploy e Entrega
 
 ### 4.1 Model Card
-- [ ] Criar `docs/model_card.md` com seções:
+- [x] Criar `docs/model_card.md` com seções:
   - Descrição do modelo (arquitetura, dataset, data de treino)
   - Métricas finais (F1, ROC-AUC, Precision, Recall no test set)
   - Limitações (distribuição do dataset, viés por perfil demográfico)
