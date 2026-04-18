@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pth
+*.pkl
+mlruns/
+.env
+data/raw/
+data/processed/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.kiro

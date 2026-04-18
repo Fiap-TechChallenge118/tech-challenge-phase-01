@@ -199,7 +199,7 @@
   - Ferramentas sugeridas: AWS CloudWatch + Evidently AI
 
 ### 4.3 README
-- [ ] Criar `README.md` com seções:
+- [x] Criar `README.md` com seções:
   - Descrição do problema e solução
   - Arquitetura do projeto (diagrama ou texto)
   - Setup: `pip install -e .` ou `docker build`
@@ -209,7 +209,7 @@
   - Tabela de resultados finais (métricas comparativas)
 
 ### 4.4 Docker
-- [ ] Criar `Dockerfile`:
+- [x] Criar `Dockerfile`:
   ```dockerfile
   FROM python:3.11-slim
   WORKDIR /app
@@ -220,9 +220,9 @@
   RUN pip install -e .
   CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
   ```
-- [ ] Testar build: `docker build -t churn-api .`
-- [ ] Testar execução: `docker run -p 8000:8000 churn-api`
-- [ ] Testar endpoint: `curl http://localhost:8000/health`
+- [x] Testar build: `docker build -t churn-api .`
+- [x] Testar execução: `docker run -p 8000:8000 churn-api`
+- [x] Testar endpoint: `curl http://localhost:8000/health`
 
 ### 4.5 Deploy AWS (Bônus)
 - [ ] Criar `template.yaml` (AWS SAM):
