@@ -146,21 +146,21 @@
   - Logging estruturado em todas as rotas (sem `print()`)
 
 ### 3.3 Testes
-- [ ] Criar `tests/test_smoke.py`:
+- [x] Criar `tests/test_smoke.py`:
   - Instanciar `ChurnMLP` com dimensões fixas
   - Fazer forward pass com tensor aleatório
   - Assertar shape do output `== (batch_size, 1)`
-- [ ] Criar `tests/test_schema.py`:
+- [x] Criar `tests/test_schema.py`:
   - Carregar `data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv`
   - Definir schema `pandera` com tipos e ranges esperados
   - Assertar que o dataframe passa na validação
-- [ ] Criar `tests/test_api.py`:
+- [x] Criar `tests/test_api.py`:
   - Usar `TestClient(app)` do FastAPI
   - Testar `GET /health` → status 200
   - Testar `POST /predict` com payload válido → status 200 e campos corretos no response
 
 ### 3.4 Makefile e Qualidade
-- [ ] Criar `Makefile` com targets:
+- [x] Criar `Makefile` com targets:
   ```makefile
   lint:
       ruff check .
@@ -174,9 +174,9 @@
   train:
       python -m src.pipeline
   ```
-- [ ] Rodar `ruff check .` → corrigir todos os erros até zero
-- [ ] Rodar `pytest tests/ -v` → todos os 3+ testes passando
-- [ ] Commit: `feat: FastAPI, tests, Makefile and ruff clean`
+- [x] Rodar `ruff check .` → corrigir todos os erros até zero
+- [x] Rodar `pytest tests/ -v` → todos os 3+ testes passando
+- [x] Commit: `feat: FastAPI, tests, Makefile and ruff clean`
 
 ---
 
