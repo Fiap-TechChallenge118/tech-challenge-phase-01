@@ -1,0 +1,50 @@
+{
+  "high_churn_risk": {
+    "description": "Contrato mensal, fibra óptica, sem suporte técnico, pouco tempo de casa — perfil típico de churner",
+    "payload": {
+      "gender": "Female",
+      "Senior Citizen": "Yes",
+      "partner": "No",
+      "dependents": "No",
+      "Phone Service": "Yes",
+      "Multiple Lines": "Yes",
+      "Internet Service": "Fiber optic",
+      "Online Security": "No",
+      "Online Backup": "No",
+      "Device Protection": "No",
+      "Tech Support": "No",
+      "Streaming TV": "Yes",
+      "Streaming Movies": "Yes",
+      "contract": "Month-to-month",
+      "Paperless Billing": "Yes",
+      "Payment Method": "Electronic check",
+      "Tenure Months": 2,
+      "Monthly Charges": 95.5,
+      "Total Charges": 191.0
+    }
+  },
+  "low_churn_risk": {
+    "description": "Contrato de 2 anos, DSL, com suporte técnico e segurança, longa permanência — perfil de cliente fiel",
+    "payload": {
+      "gender": "Male",
+      "Senior Citizen": "No",
+      "partner": "Yes",
+      "dependents": "Yes",
+      "Phone Service": "Yes",
+      "Multiple Lines": "No",
+      "Internet Service": "DSL",
+      "Online Security": "Yes",
+      "Online Backup": "Yes",
+      "Device Protection": "Yes",
+      "Tech Support": "Yes",
+      "Streaming TV": "No",
+      "Streaming Movies": "No",
+      "contract": "Two year",
+      "Paperless Billing": "No",
+      "Payment Method": "Bank transfer (automatic)",
+      "Tenure Months": 60,
+      "Monthly Charges": 55.0,
+      "Total Charges": 3300.0
+    }
+  }
+}
