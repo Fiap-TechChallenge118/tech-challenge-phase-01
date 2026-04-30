@@ -39,6 +39,42 @@ def test_mlp_forward_pass_shape():
     assert probs.min() >= 0.0 and probs.max() <= 1.0, "Probabilidades fora do intervalo [0, 1]"
 
 
+def test_sklearn_wrapper_predict_proba():
+    """ChurnMLPWrapper.predict_proba deve retornar array (n, 2) com colunas somando 1."""
+    import numpy as np
+    from src.model import ChurnMLPWrapper
+
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((10, 46)).astype(np.float32)
+
+    wrapper = ChurnMLPWrapper(hidden_dims=[64, 32], dropout=0.0)
+    # Instancia o modelo interno diretamente para não precisar treinar
+    wrapper.model_ = ChurnMLP(input_dim=46, hidden_dims=[64, 32], dropout=0.0)
+    wrapper.model_.eval()
+
+    proba = wrapper.predict_proba(X)
+    assert proba.shape == (10, 2), f"Shape esperado (10, 2), obtido {proba.shape}"
+    np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-5)
+    assert (proba >= 0).all() and (proba <= 1).all()
+
+
+def test_sklearn_wrapper_predict_returns_binary():
+    """ChurnMLPWrapper.predict deve retornar array binário {0, 1}."""
+    import numpy as np
+    from src.model import ChurnMLPWrapper
+
+    rng = np.random.default_rng(1)
+    X = rng.standard_normal((20, 46)).astype(np.float32)
+
+    wrapper = ChurnMLPWrapper(hidden_dims=[64, 32], dropout=0.0)
+    wrapper.model_ = ChurnMLP(input_dim=46, hidden_dims=[64, 32], dropout=0.0)
+    wrapper.model_.eval()
+
+    preds = wrapper.predict(X)
+    assert set(np.unique(preds)).issubset({0, 1})
+    assert preds.shape == (20,)
+
+
 @pytest.mark.skipif(
     not (MODEL_PATH.exists() and PREPROCESSOR_PATH.exists()),
     reason="Artefatos não encontrados — rode src/pipeline.py primeiro",
