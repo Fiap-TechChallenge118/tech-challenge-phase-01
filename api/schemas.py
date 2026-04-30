@@ -150,8 +150,21 @@ class PredictionResponse(BaseModel):
         ge=0.0,
         le=1.0,
         description="Score de probabilidade de churn — valor contínuo entre 0 e 1",
+        examples=[0.7234],
     )
     churn_prediction: bool = Field(
         ...,
         description="Classificação binária: True se churn_probability >= threshold calibrado por custo",
+        examples=[True],
+    )
+
+
+class HealthResponse(BaseModel):
+    """Resposta do endpoint de health check."""
+
+    status: str = Field(..., description="Sempre 'ok' quando a API está no ar", examples=["ok"])
+    model_loaded: bool = Field(
+        ...,
+        description="True se os artefatos de modelo foram carregados com sucesso no startup",
+        examples=[True],
     )

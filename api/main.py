@@ -13,7 +13,7 @@ import torch
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from api.schemas import CustomerFeatures, PredictionResponse
+from api.schemas import CustomerFeatures, HealthResponse, PredictionResponse
 from src.model import ChurnMLP
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,53 @@ async def lifespan(app: FastAPI):
     _state["preprocessor"] = None
 
 
-app = FastAPI(title="Churn Prediction API", version="1.0.0", lifespan=lifespan)
+_DESCRIPTION = """
+API de predição de churn para operadora de telecomunicações.
+
+## Estratégia de inferência
+
+O pipeline semanal (`src/batch_predict.py`) processa todos os clientes e armazena os
+scores em banco de dados. O endpoint **GET /predict** consulta esse banco sem executar
+o modelo, garantindo latência p99 < 200ms.
+
+Para clientes recém-cadastrados ou uso em desenvolvimento, o endpoint
+**POST /predict/online** executa a inferência diretamente.
+
+## Output do modelo
+
+O modelo retorna um **score de probabilidade contínuo [0, 1]**. A classificação binária
+(`churn_prediction`) é aplicada via threshold calibrado por análise de custo
+(FN = R$500, FP = R$50), salvo em `data/processed/threshold.json`.
+
+## Documentação adicional
+
+- [ML Canvas](../docs/ml_canvas.md)
+- [Model Card](../docs/model_card.md)
+- [Plano de Monitoramento](../docs/monitoring_plan.md)
+"""
+
+_TAGS = [
+    {
+        "name": "health",
+        "description": "Liveness check da API e status de carregamento dos artefatos.",
+    },
+    {
+        "name": "predict",
+        "description": (
+            "Endpoints de predição. **GET /predict** faz lookup no banco de scores pré-calculados. "
+            "**POST /predict/online** executa inferência on-demand."
+        ),
+    },
+]
+
+app = FastAPI(
+    title="Churn Prediction API",
+    version="1.0.0",
+    description=_DESCRIPTION,
+    openapi_tags=_TAGS,
+    contact={"name": "Tech Challenge — Fase 01"},
+    lifespan=lifespan,
+)
 
 
 @app.middleware("http")
@@ -95,18 +141,26 @@ async def latency_middleware(request: Request, call_next):
     return response
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse, tags=["health"])
 def health():
     """Verifica se a API está no ar e se os artefatos foram carregados com sucesso."""
-    return {"status": "ok", "model_loaded": _state["model"] is not None}
+    return HealthResponse(status="ok", model_loaded=_state["model"] is not None)
 
 
-@app.get("/predict", response_model=PredictionResponse)
-def predict_lookup(customer_id: str = Query(..., description="CustomerID para consulta de score pré-calculado")):
+@app.get(
+    "/predict",
+    response_model=PredictionResponse,
+    tags=["predict"],
+    responses={
+        404: {"description": "Cliente não encontrado na base de scores do último ciclo batch."},
+        503: {"description": "Base de scores não encontrada — execute src/batch_predict.py primeiro."},
+    },
+)
+def predict_lookup(customer_id: str = Query(..., description="CustomerID do cliente (ex: 7590-VHVEG)")):
     """Consulta o score de churn já calculado pelo batch semanal para um cliente específico.
 
     O score é buscado no banco de dados local (scores.db) populado por src/batch_predict.py.
-    O modelo não é executado durante esta chamada — latência garantida pela consulta em banco.
+    O modelo **não é executado** durante esta chamada — latência garantida pela consulta em banco.
     Retorna 404 se o cliente não foi incluído no último ciclo de batch.
     """
     if not SCORES_DB_PATH.exists():
@@ -130,12 +184,23 @@ def predict_lookup(customer_id: str = Query(..., description="CustomerID para co
     return PredictionResponse(churn_probability=prob, churn_prediction=bool(pred))
 
 
-@app.post("/predict/online", response_model=PredictionResponse)
+@app.post(
+    "/predict/online",
+    response_model=PredictionResponse,
+    tags=["predict"],
+    responses={
+        422: {"description": "Payload inválido — campo ausente, tipo incorreto ou valor categórico fora do conjunto permitido."},
+        503: {"description": "Artefatos de modelo não carregados — execute src/pipeline.py primeiro."},
+    },
+)
 def predict_online(customer: CustomerFeatures):
     """Executa inferência on-demand para um cliente com features fornecidas no payload.
 
     Uso recomendado: desenvolvimento, testes e clientes recém-cadastrados que ainda não
-    passaram pelo ciclo de batch semanal. Para consulta de scores da base existente, use GET /predict.
+    passaram pelo ciclo de batch semanal. Para consulta de scores da base existente, use **GET /predict**.
+
+    O modelo retorna um score de probabilidade contínuo [0, 1]. A classificação binária é
+    aplicada via threshold calibrado por análise de custo (FN = R$500, FP = R$50).
     """
     if _state["model"] is None:
         raise HTTPException(status_code=503, detail="Modelo não disponível. Execute src/pipeline.py primeiro.")
