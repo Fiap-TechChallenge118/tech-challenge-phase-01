@@ -1,14 +1,16 @@
 """End-to-end training pipeline: load → preprocess → train → evaluate → save artifacts."""
 
+import json
 import logging
 from pathlib import Path
 
 import joblib
 import mlflow
 import mlflow.pytorch
+import numpy as np
 import torch
 
-from src.evaluate import evaluate
+from src.evaluate import cost_analysis, evaluate
 from src.model import ChurnMLP
 from src.preprocessing import load_and_split
 from src.train import set_seeds, train_model
@@ -95,6 +97,27 @@ def run_pipeline(data_path: str, config: dict | None = None) -> dict:
         model_path = ARTIFACTS_DIR / "model.pth"
         torch.save(model.state_dict(), model_path)
         logger.info("Model state_dict salvo em %s", model_path)
+
+        # --- 5. Threshold ótimo por análise de custo ---
+        # Varre thresholds e seleciona o que minimiza custo total (FN=500, FP=50)
+        model.eval()
+        with torch.no_grad():
+            probs = torch.sigmoid(
+                model(torch.tensor(X_test, dtype=torch.float32))
+            ).squeeze().numpy()
+
+        thresholds = np.linspace(0.1, 0.9, 80)
+        costs = [
+            cost_analysis(y_test, (probs >= t).astype(int), cost_fp=50, cost_fn=500)["total_cost"]
+            for t in thresholds
+        ]
+        best_threshold = float(thresholds[np.argmin(costs)])
+        mlflow.log_param("best_threshold", best_threshold)
+
+        threshold_path = ARTIFACTS_DIR / "threshold.json"
+        with open(threshold_path, "w") as f:
+            json.dump({"threshold": best_threshold}, f)
+        logger.info("Threshold ótimo salvo em %s — threshold=%.4f", threshold_path, best_threshold)
 
     return metrics
 

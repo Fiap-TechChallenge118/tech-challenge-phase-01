@@ -1,6 +1,8 @@
 """FastAPI application for Churn MLP inference."""
 
+import json
 import logging
+import sqlite3
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,7 +10,7 @@ from pathlib import Path
 import joblib
 import pandas as pd
 import torch
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from api.schemas import CustomerFeatures, PredictionResponse
@@ -19,12 +21,11 @@ logger = logging.getLogger(__name__)
 # Paths dos artefatos gerados pelo src/pipeline.py
 PREPROCESSOR_PATH = Path("data/processed/preprocessor.pkl")
 MODEL_PATH        = Path("data/processed/model.pth")
-
-# Threshold padrão — abaixar aumenta recall (detecta mais churns) às custas de mais FPs
-THRESHOLD = 0.5
+THRESHOLD_PATH    = Path("data/processed/threshold.json")
+SCORES_DB_PATH    = Path("data/processed/scores.db")
 
 # Estado global carregado no startup — evita re-load a cada request
-_state: dict = {"model": None, "preprocessor": None}
+_state: dict = {"model": None, "preprocessor": None, "threshold": 0.5}
 
 
 @asynccontextmanager
@@ -55,6 +56,11 @@ async def lifespan(app: FastAPI):
         model.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
         # model.eval() desativa Dropout e BatchNorm — obrigatório para inferência determinística
         model.eval()
+
+        if THRESHOLD_PATH.exists():
+            with open(THRESHOLD_PATH) as f:
+                _state["threshold"] = json.load(f).get("threshold", 0.5)
+        logger.info("Threshold carregado: %.4f", _state["threshold"])
 
         _state["model"] = model
         _state["preprocessor"] = preprocessor
@@ -95,29 +101,54 @@ def health():
     return {"status": "ok", "model_loaded": _state["model"] is not None}
 
 
-@app.post("/predict", response_model=PredictionResponse)
-def predict(customer: CustomerFeatures):
-    """Recebe as features de um cliente e retorna a probabilidade e classificação de churn.
+@app.get("/predict", response_model=PredictionResponse)
+def predict_lookup(customer_id: str = Query(..., description="CustomerID para consulta de score pré-calculado")):
+    """Consulta o score de churn já calculado pelo batch semanal para um cliente específico.
 
-    Fluxo:
-        1. Valida o payload via Pydantic (feito automaticamente pelo FastAPI antes de entrar aqui)
-        2. Converte para DataFrame com os nomes de coluna do dataset original
-        3. Aplica o preprocessor (imputer + scaler + OHE)
-        4. Passa pelo modelo e retorna probabilidade + classificação binária
+    O score é buscado no banco de dados local (scores.db) populado por src/batch_predict.py.
+    O modelo não é executado durante esta chamada — latência garantida pela consulta em banco.
+    Retorna 404 se o cliente não foi incluído no último ciclo de batch.
+    """
+    if not SCORES_DB_PATH.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Base de scores não encontrada. Execute src/batch_predict.py primeiro.",
+        )
+
+    conn = sqlite3.connect(SCORES_DB_PATH)
+    row = conn.execute(
+        "SELECT churn_probability, churn_prediction FROM churn_scores WHERE customer_id = ?",
+        (customer_id,),
+    ).fetchone()
+    conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Cliente '{customer_id}' não encontrado na base de scores.")
+
+    prob, pred = row
+    logger.info("Score lookup — customer_id=%s churn_probability=%.4f", customer_id, prob)
+    return PredictionResponse(churn_probability=prob, churn_prediction=bool(pred))
+
+
+@app.post("/predict/online", response_model=PredictionResponse)
+def predict_online(customer: CustomerFeatures):
+    """Executa inferência on-demand para um cliente com features fornecidas no payload.
+
+    Uso recomendado: desenvolvimento, testes e clientes recém-cadastrados que ainda não
+    passaram pelo ciclo de batch semanal. Para consulta de scores da base existente, use GET /predict.
     """
     if _state["model"] is None:
-        # 503 = Service Unavailable — a API está no ar mas o modelo não foi carregado
         raise HTTPException(status_code=503, detail="Modelo não disponível. Execute src/pipeline.py primeiro.")
 
-    # Monta DataFrame com os nomes originais do dataset para o preprocessor reconhecer as colunas
+    threshold = _state["threshold"]
     row = pd.DataFrame([customer.to_dataframe_row()])
     X = _state["preprocessor"].transform(row)
 
     with torch.no_grad():
-        prob = float(_state["model"](torch.tensor(X, dtype=torch.float32)).squeeze())
+        prob = float(torch.sigmoid(_state["model"](torch.tensor(X, dtype=torch.float32))).squeeze())
 
-    logger.info("Prediction — churn_probability=%.4f churn_prediction=%s", prob, prob >= THRESHOLD)
-    return PredictionResponse(churn_probability=round(prob, 4), churn_prediction=prob >= THRESHOLD)
+    logger.info("Online prediction — churn_probability=%.4f churn_prediction=%s", prob, prob >= threshold)
+    return PredictionResponse(churn_probability=round(prob, 4), churn_prediction=prob >= threshold)
 
 
 @app.exception_handler(Exception)

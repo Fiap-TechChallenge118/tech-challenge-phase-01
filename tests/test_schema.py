@@ -22,10 +22,10 @@ CHURN_SCHEMA = DataFrameSchema(
 
 def test_raw_dataset_schema():
     """O dataset raw deve passar na validação de schema sem erros."""
+    from src.preprocessing import _clean
+
     df = pd.read_csv("data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv")
-    # Conversões necessárias (mesmas do pipeline) antes da validação pandera
-    df["Total Charges"]   = pd.to_numeric(df["Total Charges"],   errors="coerce")
-    df["Monthly Charges"] = pd.to_numeric(df["Monthly Charges"], errors="coerce")
+    df = _clean(df)  # normaliza colunas e converte tipos (suporta formato compacto e estendido)
 
     validated = CHURN_SCHEMA.validate(df)
     assert len(validated) >= 5000, "Dataset deve ter pelo menos 5.000 registros"
