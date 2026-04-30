@@ -1,50 +1,124 @@
 """Pydantic schemas for request validation and response serialization."""
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+# --- Tipos para campos categóricos ---
+# Usando Literal garante que valores inválidos sejam rejeitados com 422 antes de chegar
+# na lógica de inferência — sem precisar de if/else manual na rota.
+
+YesNo          = Literal["Yes", "No"]
+YesNoPhone     = Literal["Yes", "No", "No phone service"]
+YesNoInternet  = Literal["Yes", "No", "No internet service"]
+InternetType   = Literal["DSL", "Fiber optic", "No"]
+ContractType   = Literal["Month-to-month", "One year", "Two year"]
+PaymentType    = Literal[
+    "Electronic check",
+    "Mailed check",
+    "Bank transfer (automatic)",
+    "Credit card (automatic)",
+]
+GenderType     = Literal["Male", "Female"]
 
 
 class CustomerFeatures(BaseModel):
-    """Campos de entrada espelhando as features usadas no treinamento.
+    """Payload de entrada para predição de churn.
 
-    Todos os campos são obrigatórios — a API rejeita requests com campos ausentes
-    ou tipos incorretos antes de chegar na lógica de inferência (validação Pydantic).
-    Os nomes usam underscore por convenção Python; o alias com espaço é o nome original do dataset.
+    Todos os campos são obrigatórios. Campos categóricos aceitam apenas os valores
+    presentes no dataset de treinamento — valores fora do conjunto retornam 422.
+    Os nomes usam underscore por convenção Python; os aliases com espaço são os nomes
+    originais do dataset IBM Telco.
     """
 
-    # Categóricas
-    gender: str = Field(..., examples=["Male", "Female"])
-    senior_citizen: str = Field(..., alias="Senior Citizen", examples=["Yes", "No"])
-    partner: str = Field(..., examples=["Yes", "No"])
-    dependents: str = Field(..., examples=["Yes", "No"])
-    phone_service: str = Field(..., alias="Phone Service", examples=["Yes", "No"])
-    multiple_lines: str = Field(..., alias="Multiple Lines", examples=["Yes", "No", "No phone service"])
-    internet_service: str = Field(..., alias="Internet Service", examples=["DSL", "Fiber optic", "No"])
-    online_security: str = Field(..., alias="Online Security", examples=["Yes", "No", "No internet service"])
-    online_backup: str = Field(..., alias="Online Backup", examples=["Yes", "No", "No internet service"])
-    device_protection: str = Field(..., alias="Device Protection", examples=["Yes", "No", "No internet service"])
-    tech_support: str = Field(..., alias="Tech Support", examples=["Yes", "No", "No internet service"])
-    streaming_tv: str = Field(..., alias="Streaming TV", examples=["Yes", "No", "No internet service"])
-    streaming_movies: str = Field(..., alias="Streaming Movies", examples=["Yes", "No", "No internet service"])
-    contract: str = Field(..., examples=["Month-to-month", "One year", "Two year"])
-    paperless_billing: str = Field(..., alias="Paperless Billing", examples=["Yes", "No"])
-    payment_method: str = Field(..., alias="Payment Method", examples=["Electronic check", "Mailed check"])
+    # Demográficas
+    gender:          GenderType = Field(..., examples=["Male"])
+    senior_citizen:  YesNo      = Field(..., alias="Senior Citizen", examples=["No"])
+    partner:         YesNo      = Field(..., examples=["Yes"])
+    dependents:      YesNo      = Field(..., examples=["No"])
+
+    # Serviços de telefonia
+    phone_service:   YesNo      = Field(..., alias="Phone Service",   examples=["Yes"])
+    multiple_lines:  YesNoPhone = Field(..., alias="Multiple Lines",  examples=["No"])
+
+    # Serviços de internet
+    internet_service:   InternetType   = Field(..., alias="Internet Service",   examples=["DSL"])
+    online_security:    YesNoInternet  = Field(..., alias="Online Security",    examples=["No"])
+    online_backup:      YesNoInternet  = Field(..., alias="Online Backup",      examples=["No"])
+    device_protection:  YesNoInternet  = Field(..., alias="Device Protection",  examples=["No"])
+    tech_support:       YesNoInternet  = Field(..., alias="Tech Support",       examples=["No"])
+    streaming_tv:       YesNoInternet  = Field(..., alias="Streaming TV",       examples=["No"])
+    streaming_movies:   YesNoInternet  = Field(..., alias="Streaming Movies",   examples=["No"])
+
+    # Contrato e cobrança
+    contract:           ContractType   = Field(..., examples=["Month-to-month"])
+    paperless_billing:  YesNo          = Field(..., alias="Paperless Billing",  examples=["Yes"])
+    payment_method:     PaymentType    = Field(..., alias="Payment Method",     examples=["Electronic check"])
 
     # Numéricas
-    tenure_months: float = Field(..., alias="Tenure Months", ge=0, examples=[12])
-    monthly_charges: float = Field(..., alias="Monthly Charges", ge=0, examples=[65.5])
-    total_charges: float = Field(..., alias="Total Charges", ge=0, examples=[786.0])
+    tenure_months:    float = Field(..., alias="Tenure Months",    ge=0,   examples=[12])
+    monthly_charges:  float = Field(..., alias="Monthly Charges",  ge=0,   examples=[65.5])
+    total_charges:    float = Field(..., alias="Total Charges",    ge=0,   examples=[786.0])
 
     model_config = {
-        # populate_by_name=True permite usar tanto o nome Python (gender) quanto o alias (Gender)
         "populate_by_name": True,
     }
 
-    def to_dataframe_row(self) -> dict:
-        """Converte o schema para um dict com os nomes de coluna originais do dataset.
+    @field_validator("tenure_months", "monthly_charges", "total_charges", mode="before")
+    @classmethod
+    def _coerce_numeric(cls, v):
+        """Aceita strings numéricas no payload (ex: '12' → 12.0)."""
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"Valor numérico inválido: {v!r}")
 
-        O preprocessor (ColumnTransformer) foi treinado com os nomes originais do CSV,
-        então o DataFrame precisa ter exatamente as mesmas colunas para o transform funcionar.
+    @model_validator(mode="after")
+    def _validate_service_dependencies(self) -> "CustomerFeatures":
+        """Valida consistência entre serviços contratados.
+
+        Regras de negócio do dataset IBM Telco:
+        - Se phone_service = 'No' → multiple_lines deve ser 'No phone service'
+        - Se internet_service = 'No' → todos os add-ons de internet devem ser 'No internet service'
         """
+        if self.phone_service == "No" and self.multiple_lines != "No phone service":
+            raise ValueError(
+                "Se 'Phone Service' é 'No', 'Multiple Lines' deve ser 'No phone service'."
+            )
+        if self.phone_service != "No" and self.multiple_lines == "No phone service":
+            raise ValueError(
+                "Se 'Phone Service' está ativo, 'Multiple Lines' não pode ser 'No phone service'."
+            )
+
+        internet_addons = {
+            "Online Security":   self.online_security,
+            "Online Backup":     self.online_backup,
+            "Device Protection": self.device_protection,
+            "Tech Support":      self.tech_support,
+            "Streaming TV":      self.streaming_tv,
+            "Streaming Movies":  self.streaming_movies,
+        }
+
+        if self.internet_service == "No":
+            invalid = [k for k, v in internet_addons.items() if v != "No internet service"]
+            if invalid:
+                raise ValueError(
+                    f"Se 'Internet Service' é 'No', os campos {invalid} "
+                    "devem ser 'No internet service'."
+                )
+        else:
+            # Com internet contratado, 'No internet service' não é válido
+            invalid = [k for k, v in internet_addons.items() if v == "No internet service"]
+            if invalid:
+                raise ValueError(
+                    f"Com 'Internet Service' ativo, os campos {invalid} "
+                    "não podem ser 'No internet service'."
+                )
+
+        return self
+
+    def to_dataframe_row(self) -> dict:
+        """Converte o schema para um dict com os nomes de coluna originais do dataset."""
         return {
             "Gender":             self.gender,
             "Senior Citizen":     self.senior_citizen,
@@ -69,8 +143,15 @@ class CustomerFeatures(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    """Resposta da rota /predict."""
+    """Resposta dos endpoints de predição."""
 
-    churn_probability: float = Field(..., description="Probabilidade de churn entre 0 e 1")
-    # churn_prediction=True significa que o modelo classifica o cliente como provável churner
-    churn_prediction: bool = Field(..., description="True se churn_probability >= threshold (padrão 0.5)")
+    churn_probability: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Score de probabilidade de churn — valor contínuo entre 0 e 1",
+    )
+    churn_prediction: bool = Field(
+        ...,
+        description="Classificação binária: True se churn_probability >= threshold calibrado por custo",
+    )
