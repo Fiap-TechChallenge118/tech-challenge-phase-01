@@ -33,5 +33,14 @@ exclude = ["notebooks/"]
 select = ["E", "F", "W", "I"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
+testpaths    = ["tests"]
+pythonpath   = ["."]
+addopts      = "-v --tb=short"
+markers      = [
+    "slow: testes que levam mais de 5s (ex: treino completo)",
+    "integration: testes que dependem de artefatos externos (modelo treinado, CSV)",
+]
+filterwarnings = [
+    "ignore::FutureWarning:pandera",
+    "ignore::DeprecationWarning:mlflow",
+]
