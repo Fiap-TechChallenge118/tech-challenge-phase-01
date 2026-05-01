@@ -1,9 +1,8 @@
 # Outputs exibidos após `terraform apply`.
-# Use `terraform -chdir=infra output -raw api_url` para capturar em scripts.
 
 output "api_url" {
-  description = "URL pública da API"
-  value       = aws_apigatewayv2_stage.default.invoke_url
+  description = "URL pública da API (ALB)"
+  value       = "http://${aws_lb.main.dns_name}"
 }
 
 output "ecr_repository_url" {
@@ -12,6 +11,6 @@ output "ecr_repository_url" {
 }
 
 output "artifacts_bucket" {
-  description = "Nome do bucket S3 para upload dos artefatos — exporte como ARTIFACTS_BUCKET antes de `make train`"
+  description = "Nome do bucket S3 — exporte como ARTIFACTS_BUCKET antes de `make train`"
   value       = aws_s3_bucket.artifacts.bucket
 }

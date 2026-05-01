@@ -43,9 +43,10 @@ ecr-push:
 	  docker login --username AWS --password-stdin $(ECR_URI)
 	docker build -t $(ECR_URI):$(IMAGE_TAG) .
 	docker push $(ECR_URI):$(IMAGE_TAG)
-	aws lambda update-function-code \
-	  --function-name churn-mlp \
-	  --image-uri $(ECR_URI):$(IMAGE_TAG) \
+	aws ecs update-service \
+	  --cluster churn-mlp \
+	  --service churn-mlp \
+	  --force-new-deployment \
 	  --region $(AWS_REGION)
 
 # --- Artefatos do modelo → S3 ---

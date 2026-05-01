@@ -98,6 +98,15 @@ if _LAMBDA:
     _load_artifacts()
 
 
+# Em Lambda, o carregamento acontece aqui — no escopo do módulo, durante o container init.
+# Isso ocorre ANTES de qualquer request chegar, portanto não está sujeito ao timeout
+# de 29s do API Gateway. Requests subsequentes encontram o modelo já em memória.
+# Localmente, o lifespan abaixo faz o mesmo trabalho.
+if _LAMBDA:
+    _download_artifacts_from_s3()
+    _load_artifacts()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Carrega os artefatos no startup — usado apenas localmente (uvicorn).
@@ -255,16 +264,6 @@ def predict_online(customer: CustomerFeatures):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Captura exceções não tratadas e retorna 500 com log estruturado.
-
-    Sem isso, erros internos vão aparecer no log mas o cliente recebe uma resposta vazia.
-    """
+    """Captura exceções não tratadas e retorna 500 com log estruturado."""
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
-
-
-# Handler para AWS Lambda — converte eventos do API Gateway para ASGI.
-# Usado apenas em Lambda; localmente o uvicorn chama `app` diretamente.
-if _LAMBDA:
-    from mangum import Mangum
-    handler = Mangum(app, lifespan="on")

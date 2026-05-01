@@ -41,9 +41,10 @@ churn-mlp/
 │   ├── outputs.tf            # Outputs: api_url, ecr_url, bucket
 │   ├── s3.tf                 # Bucket de artefatos
 │   ├── ecr.tf                # Repositório ECR
-│   ├── iam.tf                # Role + policies da Lambda
-│   ├── lambda.tf             # Função Lambda
-│   ├── api_gateway.tf        # HTTP API Gateway
+│   ├── iam.tf                # Roles ECS (execution + task)
+│   ├── networking.tf         # VPC, subnets, IGW, security groups
+│   ├── alb.tf                # Application Load Balancer
+│   ├── ecs.tf                # Cluster + task definition + service Fargate
 │   └── terraform.tfvars.example  # Template de configuração
 ├── Makefile                  # Atalhos: lint, test, train, run, tf-*, ecr-push
 ├── Dockerfile                # Imagem para deploy
@@ -184,20 +185,32 @@ curl http://localhost:8000/health
 
 ---
 
-## Deploy AWS (Lambda + API Gateway)
+## Deploy AWS (ECS Fargate + ALB)
 
-A API é servida via **AWS Lambda** (container Docker) + **API Gateway HTTP API**.
-Os artefatos do modelo (`model.pth`, `preprocessor.pkl`, `threshold.json`) ficam em um **bucket S3** separado, carregados pela Lambda no cold start. Isso permite atualizar o modelo sem rebuild de imagem.
+A API é servida via **ECS Fargate** (container Docker sem gerenciamento de servidor) + **Application Load Balancer**.
+Os artefatos do modelo (`model.pth`, `preprocessor.pkl`, `threshold.json`) ficam em um **bucket S3** separado, carregados pelo container no startup. Isso permite atualizar o modelo sem rebuild de imagem.
+
+> **Por que ECS Fargate e não Lambda?**
+> PyTorch demora ~10-15s para importar, o que excede o timeout de init do Lambda (10s) e o limite do API Gateway (29s). O ECS Fargate não tem essas restrições — o container sobe uma vez e fica em memória.
+
+### Estimativa de custo
+
+| Recurso | Custo/hora | Custo/mês (24h) |
+|---|---|---|
+| Fargate (1 vCPU + 2GB) | ~$0.05 | ~$36 |
+| ALB | ~$0.008 | ~$16 |
+| ECR + S3 | — | ~$0.20 |
+| **Total** | | **~$52/mês** |
+
+> **Para uso acadêmico:** suba, grave o vídeo STAR demonstrando o endpoint (~2-3h), e destrua com `make tf-destroy`. Custo total: **~$0.20**.
 
 ### Pré-requisitos
 
 - [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.7
-- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) configurado (`aws configure`)
+- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html)
 - Docker
 
 ### Configurar credenciais AWS
-
-Antes de qualquer comando Terraform ou AWS CLI, configure suas credenciais:
 
 ```bash
 aws configure
@@ -216,58 +229,58 @@ Default output format: json
 
 ```
 infra/
-├── main.tf           # provider AWS + backend S3 (state remoto)
+├── main.tf           # provider AWS + backend S3 (state remoto compartilhado)
 ├── variables.tf      # inputs: região, project_name, image_tag
 ├── locals.tf         # valores derivados (bucket name, image URI)
 ├── data.tf           # data sources (IAM policy documents)
-├── outputs.tf        # api_url, ecr_repository_url, artifacts_bucket
-├── s3.tf             # bucket de artefatos do modelo
+├── outputs.tf        # api_url (ALB), ecr_repository_url, artifacts_bucket
+├── s3.tf             # bucket de artefatos do modelo (com versionamento)
 ├── ecr.tf            # repositório ECR para a imagem Docker
-├── iam.tf            # role Lambda + policies (CloudWatch + S3)
-├── lambda.tf         # função Lambda + permission para API Gateway
-├── api_gateway.tf    # HTTP API + integração Lambda + stage
-├── terraform.tfvars          # valores reais (não commitado)
+├── iam.tf            # ecs_execution role + ecs_task role (s3:GetObject)
+├── networking.tf     # VPC, subnets públicas, IGW, security groups
+├── alb.tf            # Application Load Balancer + target group + listener
+├── ecs.tf            # cluster + task definition + service Fargate
+├── terraform.tfvars          # valores reais (não commitado — ver .gitignore)
 └── terraform.tfvars.example  # template para o time
 ```
 
-### Primeiro deploy (uma única vez por conta AWS)
+### Primeiro deploy
 
-**1. Criar o bucket de tfstate** (state remoto compartilhado entre o time):
+**1. Criar o bucket de tfstate** (state remoto — uma única vez por conta AWS):
 
 ```bash
-aws s3api create-bucket --bucket churn-mlp-tfstate-{{id}} \
+aws s3api create-bucket --bucket churn-mlp-tfstate-tc1 \
   --region us-east-2 --create-bucket-configuration LocationConstraint=us-east-2
 
-aws s3api put-bucket-versioning --bucket churn-mlp-tfstate-{{id}} \
+aws s3api put-bucket-versioning --bucket churn-mlp-tfstate-tc1 \
   --versioning-configuration Status=Enabled
 ```
 
-**2. Configurar variáveis locais:**
+**2. Configurar variáveis:**
 
 ```bash
 cp infra/terraform.tfvars.example infra/terraform.tfvars
-# edite se necessário (região, project_name, etc.)
 ```
 
 **3. Provisionar a infraestrutura:**
 
 ```bash
-make tf-init    # inicializa o Terraform e conecta ao state remoto
+make tf-init    # conecta ao state remoto
 make tf-plan    # revisa o que será criado
-make tf-apply   # cria ECR, S3, IAM, Lambda, API Gateway
+make tf-apply   # cria VPC, ECR, S3, IAM, ALB, ECS cluster + service
 ```
 
-**4. Fazer push da imagem Docker para o ECR:**
+**4. Fazer push da imagem para o ECR:**
 
 ```bash
-make ecr-push   # build + push + atualiza a Lambda automaticamente
+make ecr-push   # build + push + force-new-deployment no ECS
 ```
 
 **5. Treinar e publicar os artefatos no S3:**
 
 ```bash
-export ARTIFACTS_BUCKET=churn-mlp-artifacts-{{id}}
-make train      # treina e já faz upload para S3 automaticamente
+export ARTIFACTS_BUCKET=churn-mlp-artifacts-tc1
+make train      # treina e faz upload automático para S3
 ```
 
 **6. Testar o endpoint público:**
@@ -277,21 +290,19 @@ API_URL=$(terraform -chdir=infra output -raw api_url)
 curl $API_URL/health
 ```
 
-### Fluxo de retreino (versões futuras)
-
-Quando um novo modelo for treinado, basta:
+### Fluxo de retreino
 
 ```bash
-export ARTIFACTS_BUCKET=churn-mlp-artifacts-{{id}}
+export ARTIFACTS_BUCKET=churn-mlp-artifacts-tc1
 make train
-# Os novos artefatos são enviados para s3://churn-mlp-artifacts-{{id}}/models/latest/
-# A Lambda carrega os novos artefatos no próximo cold start — sem rebuild de imagem
+# Novos artefatos sobem para s3://churn-mlp-artifacts-tc1/models/latest/
+# O ECS service pega os novos artefatos no próximo restart do container
+make ecr-push   # force-new-deployment para reiniciar o container
 ```
 
 ### Outros membros do time
 
 ```bash
-# Clonar o repo e conectar ao state remoto existente
 cp infra/terraform.tfvars.example infra/terraform.tfvars
 make tf-init    # baixa o state do S3 automaticamente
 ```
@@ -299,10 +310,10 @@ make tf-init    # baixa o state do S3 automaticamente
 ### Destruir a infraestrutura (após a entrega)
 
 ```bash
-make tf-destroy
+make tf-destroy  # destrói todos os recursos em ~2 minutos
 ```
 
-### Variáveis de ambiente da Lambda
+### Variáveis de ambiente do container
 
 | Variável | Descrição | Valor padrão |
 |---|---|---|
@@ -313,11 +324,11 @@ make tf-destroy
 
 | Comando | Descrição |
 |---|---|
-| `make tf-init` | Inicializa o Terraform |
+| `make tf-init` | Inicializa o Terraform e conecta ao state remoto |
 | `make tf-plan` | Mostra o plano de execução |
-| `make tf-apply` | Provisiona a infraestrutura |
-| `make tf-destroy` | Destrói todos os recursos |
-| `make ecr-push` | Build + push da imagem + atualiza Lambda |
+| `make tf-apply` | Provisiona toda a infraestrutura |
+| `make tf-destroy` | Destrói todos os recursos AWS |
+| `make ecr-push` | Build + push da imagem + reinicia o ECS service |
 | `make artifacts-push` | Upload manual dos artefatos para S3 |
 
 ---
