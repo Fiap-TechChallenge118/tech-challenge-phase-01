@@ -35,7 +35,7 @@ def evaluate(
     # sem isso os resultados são não-determinísticos e incorretos para avaliação.
     model.eval()
     with torch.no_grad():  # torch.no_grad() economiza memória e acelera: não precisa calcular gradientes na inferência
-        probs = model(torch.tensor(X_test, dtype=torch.float32)).squeeze().numpy()
+        probs = torch.sigmoid(model(torch.tensor(X_test, dtype=torch.float32))).squeeze().numpy()
         # .squeeze() remove a dimensão extra de saída (batch_size, 1) → (batch_size,)
         # .numpy() converte para array numpy, compatível com sklearn
 

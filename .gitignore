@@ -5,7 +5,10 @@ __pycache__/
 *.pth
 *.pkl
 mlruns/
+*.db
 .env
+.coverage
+htmlcov/
 data/raw/
 data/processed/
 *.egg-info/
