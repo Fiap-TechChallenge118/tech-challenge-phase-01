@@ -73,7 +73,12 @@ A estratégia de serving adota **batch semanal como modo principal**, com endpoi
 - Os scores calculados são armazenados em banco de dados (tabela `churn_scores`)
 - O modelo PyTorch serializado (`.pt`) é carregado uma vez e executado em lote
 
-### Endpoint `/predict` (modo de consulta)
+### Endpoint `POST /predict` (inferência on-demand)
+- Recebe as features do cliente no payload e executa o modelo na hora
+- Endpoint principal conforme especificação do tech challenge
+- Usado também para clientes recém-cadastrados que ainda não passaram pelo ciclo de batch
+
+### Endpoint `GET /predict/batch` (modo de consulta)
 - Recebe o `customerID` como parâmetro
 - **Consulta o score já calculado** no banco de dados — o modelo não é executado novamente
 - Latência alvo p99 < 200ms, garantida pela consulta em banco e não pela inferência online

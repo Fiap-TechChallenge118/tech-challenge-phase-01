@@ -3,13 +3,15 @@
 from pathlib import Path
 
 import joblib
+import numpy as np
+import pandas as pd
 import pytest
 import torch
 
-from src.model import ChurnMLP
+from src.model import ChurnMLP, ChurnMLPWrapper
 
-ARTIFACTS_DIR    = Path("data/processed")
-MODEL_PATH       = ARTIFACTS_DIR / "model.pth"
+ARTIFACTS_DIR     = Path("data/processed")
+MODEL_PATH        = ARTIFACTS_DIR / "model.pth"
 PREPROCESSOR_PATH = ARTIFACTS_DIR / "preprocessor.pkl"
 
 # Feature row representando um cliente de alto risco (mês-a-mês, fiber optic, pouco tempo de casa)
@@ -41,14 +43,10 @@ def test_mlp_forward_pass_shape():
 
 def test_sklearn_wrapper_predict_proba():
     """ChurnMLPWrapper.predict_proba deve retornar array (n, 2) com colunas somando 1."""
-    import numpy as np
-    from src.model import ChurnMLPWrapper
-
     rng = np.random.default_rng(0)
     X = rng.standard_normal((10, 46)).astype(np.float32)
 
     wrapper = ChurnMLPWrapper(hidden_dims=[64, 32], dropout=0.0)
-    # Instancia o modelo interno diretamente para não precisar treinar
     wrapper.model_ = ChurnMLP(input_dim=46, hidden_dims=[64, 32], dropout=0.0)
     wrapper.model_.eval()
 
@@ -60,9 +58,6 @@ def test_sklearn_wrapper_predict_proba():
 
 def test_sklearn_wrapper_predict_returns_binary():
     """ChurnMLPWrapper.predict deve retornar array binário {0, 1}."""
-    import numpy as np
-    from src.model import ChurnMLPWrapper
-
     rng = np.random.default_rng(1)
     X = rng.standard_normal((20, 46)).astype(np.float32)
 
@@ -87,8 +82,6 @@ def test_model_loads_and_predicts():
     - A predição retorna um único float em [0, 1]
     - O modelo está em modo eval (Dropout desativado — resultado determinístico)
     """
-    import pandas as pd
-
     preprocessor = joblib.load(PREPROCESSOR_PATH)
 
     input_dim = preprocessor.transform(pd.DataFrame([_SAMPLE_ROW])).shape[1]
@@ -102,7 +95,6 @@ def test_model_loads_and_predicts():
 
     assert 0.0 <= prob <= 1.0, f"Probabilidade fora de [0, 1]: {prob}"
 
-    # Resultado determinístico: duas chamadas consecutivas devem retornar o mesmo valor
     with torch.no_grad():
         prob2 = float(torch.sigmoid(model(torch.tensor(X, dtype=torch.float32))).squeeze())
     assert prob == prob2, "Predição não é determinística em modo eval"
