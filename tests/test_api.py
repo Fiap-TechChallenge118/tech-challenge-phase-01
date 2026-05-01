@@ -49,7 +49,7 @@ def test_health_returns_200(client):
     assert response.json()["status"] == "ok"
 
 
-def test_predict_returns_valid_response(client):
+def test_predict_online_returns_valid_response(client):
     """POST /predict com payload válido deve retornar 200 com os campos corretos."""
     response = client.post("/predict", json=VALID_PAYLOAD)
     assert response.status_code == 200
@@ -61,7 +61,28 @@ def test_predict_returns_valid_response(client):
     assert isinstance(body["churn_prediction"], bool)
 
 
-def test_predict_rejects_invalid_payload(client):
+def test_predict_online_rejects_invalid_payload(client):
     """POST /predict com payload incompleto deve retornar 422 (Unprocessable Entity)."""
     response = client.post("/predict", json={"gender": "Male"})  # faltam campos obrigatórios
     assert response.status_code == 422
+
+
+def test_predict_online_rejects_invalid_categorical(client):
+    """POST /predict com valor categórico inválido deve retornar 422."""
+    payload = {**VALID_PAYLOAD, "gender": "Unknown"}  # "Unknown" não é valor válido
+    response = client.post("/predict", json=payload)
+    assert response.status_code == 422
+
+
+def test_predict_online_rejects_inconsistent_services(client):
+    """POST /predict com dependências de serviço inconsistentes deve retornar 422."""
+    # phone_service=No mas multiple_lines=Yes é inconsistente
+    payload = {**VALID_PAYLOAD, "Phone Service": "No", "Multiple Lines": "Yes"}
+    response = client.post("/predict", json=payload)
+    assert response.status_code == 422
+
+
+def test_predict_batch_lookup_returns_503_without_db(client):
+    """GET /predict/batch sem scores.db deve retornar 503 (banco não encontrado)."""
+    response = client.get("/predict/batch?customer_id=7590-VHVEG")
+    assert response.status_code in (404, 503)

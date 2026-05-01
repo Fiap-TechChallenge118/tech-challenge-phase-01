@@ -24,7 +24,55 @@ CATEGORICAL_FEATURES = [
 ]
 
 
+# Mapeamento da versão compacta do dataset IBM Telco (21 colunas, sem espaços)
+# para o formato estendido esperado pelo projeto (33 colunas, com espaços).
+_COMPACT_COLUMN_MAP = {
+    "customerID": "CustomerID",
+    "gender": "Gender",
+    "SeniorCitizen": "Senior Citizen",
+    "Partner": "Partner",
+    "Dependents": "Dependents",
+    "tenure": "Tenure Months",
+    "PhoneService": "Phone Service",
+    "MultipleLines": "Multiple Lines",
+    "InternetService": "Internet Service",
+    "OnlineSecurity": "Online Security",
+    "OnlineBackup": "Online Backup",
+    "DeviceProtection": "Device Protection",
+    "TechSupport": "Tech Support",
+    "StreamingTV": "Streaming TV",
+    "StreamingMovies": "Streaming Movies",
+    "Contract": "Contract",
+    "PaperlessBilling": "Paperless Billing",
+    "PaymentMethod": "Payment Method",
+    "MonthlyCharges": "Monthly Charges",
+    "TotalCharges": "Total Charges",
+}
+
+
+def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza a versão compacta do CSV (21 colunas) para o formato estendido esperado.
+
+    A versão compacta (Kaggle / IBM GitHub) usa camelCase sem espaços e uma coluna
+    'Churn' com Yes/No. O projeto foi desenvolvido com o formato estendido (IBM Cloud)
+    que usa espaços nos nomes e uma coluna 'Churn Value' com 0/1.
+    Se o CSV já estiver no formato estendido, o DataFrame não é alterado.
+    """
+    if "tenure" in df.columns:
+        df = df.rename(columns=_COMPACT_COLUMN_MAP)
+        # SeniorCitizen vem como 0/1 inteiro na versão compacta — converter para Yes/No
+        df["Senior Citizen"] = df["Senior Citizen"].map({0: "No", 1: "Yes"}).fillna(df["Senior Citizen"])
+        # Churn vem como "Yes"/"No" — criar coluna numérica Churn Value (1/0)
+        if "Churn" in df.columns and "Churn Value" not in df.columns:
+            df["Churn Value"] = (df["Churn"] == "Yes").astype(int)
+        # Também criar CustomerID se não existir (em algumas versões pode estar ausente)
+        if "CustomerID" not in df.columns and "customerID" not in df.columns:
+            df["CustomerID"] = range(len(df))
+    return df
+
+
 def _clean(df: pd.DataFrame) -> pd.DataFrame:
+    df = _normalize_columns(df)
     # Colunas de cobrança chegam como string no CSV — forçar conversão para float
     df["Total Charges"] = pd.to_numeric(df["Total Charges"], errors="coerce")
     df["Monthly Charges"] = pd.to_numeric(df["Monthly Charges"], errors="coerce")
