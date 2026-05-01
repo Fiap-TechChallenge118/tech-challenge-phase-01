@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import sqlite3
 import time
 from contextlib import asynccontextmanager
@@ -18,59 +19,95 @@ from src.model import ChurnMLP
 
 logger = logging.getLogger(__name__)
 
-# Paths dos artefatos gerados pelo src/pipeline.py
-PREPROCESSOR_PATH = Path("data/processed/preprocessor.pkl")
-MODEL_PATH        = Path("data/processed/model.pth")
-THRESHOLD_PATH    = Path("data/processed/threshold.json")
-SCORES_DB_PATH    = Path("data/processed/scores.db")
+# Quando rodando em Lambda, os artefatos são baixados do S3 para /tmp (único diretório gravável).
+# Localmente, usa data/processed/ gerado pelo src/pipeline.py.
+# A variável ARTIFACTS_BUCKET é injetada pelo Terraform como env var da Lambda.
+_LAMBDA = bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+_LOCAL_DIR = Path("/tmp/artifacts") if _LAMBDA else Path("data/processed")
+_S3_BUCKET = os.environ.get("ARTIFACTS_BUCKET", "")
+_S3_PREFIX = os.environ.get("ARTIFACTS_PREFIX", "models/latest")
+
+PREPROCESSOR_PATH = _LOCAL_DIR / "preprocessor.pkl"
+MODEL_PATH        = _LOCAL_DIR / "model.pth"
+THRESHOLD_PATH    = _LOCAL_DIR / "threshold.json"
+SCORES_DB_PATH    = Path("data/processed/scores.db")  # não disponível em Lambda — endpoint retorna 503
 
 # Estado global carregado no startup — evita re-load a cada request
 _state: dict = {"model": None, "preprocessor": None, "threshold": 0.5}
 
 
+def _download_artifacts_from_s3() -> None:
+    """Baixa os artefatos do S3 para /tmp/artifacts no cold start da Lambda.
+
+    /tmp é o único diretório gravável em Lambda.
+    Os arquivos ficam em cache entre invocações do mesmo container — o download só ocorre
+    no cold start, não em cada request.
+    """
+    import boto3
+
+    _LOCAL_DIR.mkdir(parents=True, exist_ok=True)
+    s3 = boto3.client("s3")
+    for filename in ("preprocessor.pkl", "model.pth", "threshold.json"):
+        dest = _LOCAL_DIR / filename
+        if not dest.exists():  # cache: não re-baixa se já está em /tmp do container quente
+            s3_key = f"{_S3_PREFIX}/{filename}"
+            logger.info("Baixando s3://%s/%s → %s", _S3_BUCKET, s3_key, dest)
+            s3.download_file(_S3_BUCKET, s3_key, str(dest))
+
+
+def _load_artifacts() -> None:
+    """Carrega preprocessor e modelo do disco para o estado global."""
+    if not (PREPROCESSOR_PATH.exists() and MODEL_PATH.exists()):
+        logger.warning("Artefatos não encontrados em %s", _LOCAL_DIR)
+        return
+
+    preprocessor = joblib.load(PREPROCESSOR_PATH)
+
+    input_dim = preprocessor.transform(
+        pd.DataFrame([{
+            "Gender": "Male", "Senior Citizen": "No", "Partner": "No",
+            "Dependents": "No", "Phone Service": "Yes", "Multiple Lines": "No",
+            "Internet Service": "DSL", "Online Security": "No", "Online Backup": "No",
+            "Device Protection": "No", "Tech Support": "No", "Streaming TV": "No",
+            "Streaming Movies": "No", "Contract": "Month-to-month",
+            "Paperless Billing": "Yes", "Payment Method": "Electronic check",
+            "Tenure Months": 1.0, "Monthly Charges": 50.0, "Total Charges": 50.0,
+        }])
+    ).shape[1]
+
+    model = ChurnMLP(input_dim=input_dim, hidden_dims=[64, 32], dropout=0.3)
+    model.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
+    model.eval()
+
+    if THRESHOLD_PATH.exists():
+        with open(THRESHOLD_PATH) as f:
+            _state["threshold"] = json.load(f).get("threshold", 0.5)
+
+    _state["model"] = model
+    _state["preprocessor"] = preprocessor
+    logger.info("Artefatos carregados — source=%s input_dim=%d threshold=%.4f",
+                "s3" if _LAMBDA else "local", input_dim, _state["threshold"])
+
+
+# Em Lambda, o carregamento acontece aqui — no escopo do módulo, durante o container init.
+# Isso ocorre ANTES de qualquer request chegar, portanto não está sujeito ao timeout
+# de 29s do API Gateway. Requests subsequentes encontram o modelo já em memória.
+# Localmente, o lifespan abaixo faz o mesmo trabalho.
+if _LAMBDA:
+    _download_artifacts_from_s3()
+    _load_artifacts()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Carrega os artefatos uma única vez no startup da aplicação.
-
-    Usar lifespan em vez de @app.on_event("startup") é a abordagem recomendada no FastAPI moderno.
-    Se os arquivos não existirem (ex: pipeline ainda não rodou), a API sobe mas /predict retorna 503.
+    """Carrega os artefatos no startup — usado apenas localmente (uvicorn).
+    Em Lambda o carregamento já ocorreu no escopo do módulo acima.
     """
-    if PREPROCESSOR_PATH.exists() and MODEL_PATH.exists():
-        preprocessor = joblib.load(PREPROCESSOR_PATH)
+    if not _LAMBDA:
+        _load_artifacts()
 
-        # Recria a arquitetura do modelo e carrega os pesos salvos pelo pipeline
-        # input_dim é inferido do preprocessor para não precisar hardcodar o valor
-        input_dim = preprocessor.transform(
-            pd.DataFrame([{
-                "Gender": "Male", "Senior Citizen": "No", "Partner": "No",
-                "Dependents": "No", "Phone Service": "Yes", "Multiple Lines": "No",
-                "Internet Service": "DSL", "Online Security": "No", "Online Backup": "No",
-                "Device Protection": "No", "Tech Support": "No", "Streaming TV": "No",
-                "Streaming Movies": "No", "Contract": "Month-to-month",
-                "Paperless Billing": "Yes", "Payment Method": "Electronic check",
-                "Tenure Months": 1.0, "Monthly Charges": 50.0, "Total Charges": 50.0,
-            }])
-        ).shape[1]
+    yield
 
-        model = ChurnMLP(input_dim=input_dim, hidden_dims=[64, 32], dropout=0.3)
-        model.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
-        # model.eval() desativa Dropout e BatchNorm — obrigatório para inferência determinística
-        model.eval()
-
-        if THRESHOLD_PATH.exists():
-            with open(THRESHOLD_PATH) as f:
-                _state["threshold"] = json.load(f).get("threshold", 0.5)
-        logger.info("Threshold carregado: %.4f", _state["threshold"])
-
-        _state["model"] = model
-        _state["preprocessor"] = preprocessor
-        logger.info("Artefatos carregados — input_dim=%d", input_dim)
-    else:
-        logger.warning("Artefatos não encontrados em %s / %s", PREPROCESSOR_PATH, MODEL_PATH)
-
-    yield  # aplicação fica ativa aqui
-
-    # cleanup ao desligar (não necessário para este caso, mas é boa prática)
     _state["model"] = None
     _state["preprocessor"] = None
 
@@ -189,7 +226,7 @@ def predict_lookup(customer_id: str = Query(..., description="CustomerID do clie
     response_model=PredictionResponse,
     tags=["predict"],
     responses={
-        422: {"description": "Payload inválido — campo ausente, tipo incorreto ou valor categórico fora do conjunto permitido."},
+        422: {"description": "Payload inválido — campo ausente, tipo incorreto ou valor categórico fora do conjunto permitido."},  # noqa: E501
         503: {"description": "Artefatos de modelo não carregados — execute src/pipeline.py primeiro."},
     },
 )
@@ -224,3 +261,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     """
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+# Handler para AWS Lambda — converte eventos do API Gateway para ASGI.
+# Usado apenas em Lambda; localmente o uvicorn chama `app` diretamente.
+if _LAMBDA:
+    from mangum import Mangum
+    handler = Mangum(app, lifespan="on")

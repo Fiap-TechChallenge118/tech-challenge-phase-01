@@ -42,6 +42,7 @@ def test_mlp_forward_pass_shape():
 def test_sklearn_wrapper_predict_proba():
     """ChurnMLPWrapper.predict_proba deve retornar array (n, 2) com colunas somando 1."""
     import numpy as np
+
     from src.model import ChurnMLPWrapper
 
     rng = np.random.default_rng(0)
@@ -61,6 +62,7 @@ def test_sklearn_wrapper_predict_proba():
 def test_sklearn_wrapper_predict_returns_binary():
     """ChurnMLPWrapper.predict deve retornar array binário {0, 1}."""
     import numpy as np
+
     from src.model import ChurnMLPWrapper
 
     rng = np.random.default_rng(1)

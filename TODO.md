@@ -224,14 +224,37 @@
 - [x] Testar execução: `docker run -p 8000:8000 churn-api`
 - [x] Testar endpoint: `curl http://localhost:8000/health`
 
-### 4.5 Deploy AWS (Bônus)
-- [ ] Criar `template.yaml` (AWS SAM):
-  - Empacotar container Docker no ECR
-  - Lambda com image URI + API Gateway HTTP API
-  - Variáveis de ambiente para paths dos artefatos
-- [ ] Executar: `sam build && sam deploy --guided`
-- [ ] Testar endpoint público: `curl https://<api-id>.execute-api.<region>.amazonaws.com/predict`
-- [ ] Commit: `feat: AWS deploy via SAM`
+### 4.5 Deploy AWS (Bônus) — via Terraform
+
+- [x] Criar estrutura `infra/`:
+  ```
+  infra/
+  ├── main.tf          # provider AWS + backend S3
+  ├── variables.tf     # region, project_name, image_tag
+  ├── locals.tf        # valores derivados
+  ├── data.tf          # data sources IAM
+  ├── outputs.tf       # api_url, ecr_repository_url, artifacts_bucket
+  ├── s3.tf            # bucket de artefatos do modelo
+  ├── ecr.tf           # ECR repository
+  ├── iam.tf           # IAM role + policies para Lambda
+  ├── lambda.tf        # Lambda function (container image)
+  ├── api_gateway.tf   # HTTP API Gateway + integração Lambda
+  ├── terraform.tfvars          # valores reais (não commitado)
+  └── terraform.tfvars.example  # template para o time
+  ```
+- [x] `ecr.tf`: criar repositório ECR (`aws_ecr_repository`)
+- [x] `s3.tf`: criar bucket de artefatos com versionamento e bloqueio de acesso público
+- [x] `iam.tf`: criar role Lambda com `AWSLambdaBasicExecutionRole` + permissão `s3:GetObject` no bucket de artefatos
+- [x] `lambda.tf`: `aws_lambda_function` com `package_type = "Image"`, `image_uri` apontando para ECR, variáveis de ambiente `ARTIFACTS_BUCKET` e `ARTIFACTS_PREFIX`, `memory_size = 1024`, `timeout = 30`
+- [x] `api_gateway.tf`: `aws_apigatewayv2_api` (HTTP API) + `aws_apigatewayv2_integration` (Lambda proxy) + rota `$default` (catch-all) + `aws_apigatewayv2_stage` com auto_deploy
+- [x] `src/pipeline.py`: upload automático dos artefatos para S3 ao final do treino (quando `ARTIFACTS_BUCKET` definido)
+- [x] `api/main.py`: download automático dos artefatos do S3 no cold start da Lambda
+- [x] Adicionar targets no `Makefile`: `tf-init`, `tf-plan`, `tf-apply`, `tf-destroy`, `ecr-push`, `artifacts-push`
+- [x] Documentar deploy no `README.md`: passo a passo completo, fluxo de retreino, instruções para o time
+- [ ] Executar: `make tf-init && make tf-plan && make tf-apply`
+- [ ] Fazer push da imagem: `make ecr-push`
+- [ ] Testar endpoint público: `curl https://<api-id>.execute-api.<region>.amazonaws.com/health`
+- [ ] Commit: `feat: AWS deploy via Terraform (ECR + Lambda + API Gateway + S3 artifacts)`
 
 ### 4.6 Checklist Final e Entrega
 - [ ] Rodar checklist de qualidade:

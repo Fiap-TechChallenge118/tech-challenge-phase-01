@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import joblib
@@ -119,7 +120,34 @@ def run_pipeline(data_path: str, config: dict | None = None) -> dict:
             json.dump({"threshold": best_threshold}, f)
         logger.info("Threshold ótimo salvo em %s — threshold=%.4f", threshold_path, best_threshold)
 
+        # --- 6. Upload para S3 (se ARTIFACTS_BUCKET estiver definido) ---
+        _upload_artifacts_to_s3(ARTIFACTS_DIR)
+
     return metrics
+
+
+def _upload_artifacts_to_s3(artifacts_dir: Path) -> None:
+    """Faz upload dos artefatos para S3 logo após o treino, se ARTIFACTS_BUCKET estiver definido.
+
+    Isso elimina o passo manual `make artifacts-push` e garante que produção
+    sempre usa os artefatos do treino mais recente.
+    Silencioso quando ARTIFACTS_BUCKET não está definido (ambiente local sem AWS).
+    """
+    bucket = os.environ.get("ARTIFACTS_BUCKET")
+    if not bucket:
+        logger.info("ARTIFACTS_BUCKET não definido — upload S3 ignorado")
+        return
+
+    import boto3
+
+    prefix = os.environ.get("ARTIFACTS_PREFIX", "models/latest")
+    s3 = boto3.client("s3")
+
+    for filename in ("preprocessor.pkl", "model.pth", "threshold.json"):
+        local_path = artifacts_dir / filename
+        s3_key = f"{prefix}/{filename}"
+        s3.upload_file(str(local_path), bucket, s3_key)
+        logger.info("Upload concluído — s3://%s/%s", bucket, s3_key)
 
 
 if __name__ == "__main__":

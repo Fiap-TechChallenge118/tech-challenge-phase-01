@@ -15,3 +15,10 @@ data/processed/
 .pytest_cache/
 .ruff_cache/
 .kiro
+
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/terraform.tfvars
+infra/terraform.tfstate
+infra/terraform.tfstate.backup

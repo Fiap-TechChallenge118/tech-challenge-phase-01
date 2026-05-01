@@ -5,7 +5,6 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
 COPY api/ api/
-COPY data/processed/ data/processed/
 
 RUN pip install --no-cache-dir -e .
 
