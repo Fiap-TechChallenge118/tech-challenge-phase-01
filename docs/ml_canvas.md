@@ -1,126 +1,123 @@
 # ML Canvas — Churn MLP
 
 ## 1. Stakeholders
-- **Solicitante:** Diretoria de Retenção de Clientes
-- **Usuários do modelo:** Time de CRM / Atendimento ao Cliente
+- **Solicitante:** Diretoria de Negócios
+- **Usuários do modelo:** Time de retenção de clientes da operadora
 - **Responsável técnico:** Time de ML
 
----
-
 ## 2. Problema de Negócio
-Uma operadora de telecomunicações está perdendo clientes em ritmo acelerado.  
-O objetivo é identificar **antecipadamente** quais clientes têm alto risco de cancelamento (churn) para que o time de retenção possa agir antes da perda.
+Uma operadora de telecomunicações está perdendo clientes em ritmo
+acelerado e sem capacidade de prever quais clientes estão em risco
+antes do cancelamento. O objetivo é identificar **antecipadamente**
+quais clientes têm alto risco de churn para que o time de retenção
+possa agir proativamente, reduzindo custos de aquisição de novos
+clientes.
 
----
-
-## 3. Fontes de Dados (Data Sources)
-- **Dataset:** Telco Customer Churn (IBM)
-- **Formato:** arquivo CSV
-- **Volume:** 7.043 registros × 33 features
-- **Features relevantes:** tenure, MonthlyCharges, TotalCharges, Contract, InternetService, PaymentMethod, entre outras
-- **Features descartadas:** customerID (identificador sem valor preditivo)
-- **Problema de qualidade identificado:** TotalCharges contém espaços em branco → convertido para float, nulos preenchidos com mediana
-
----
-
-## 4. Definição do Label
+## 3. Definição do Label
 - **Positivo (1):** Cliente cancelou o serviço (`Churn = Yes`)
 - **Negativo (0):** Cliente permaneceu ativo (`Churn = No`)
 - **Desbalanceamento observado:** ~26% positivos / ~74% negativos
 
----
+## 4. Output do Modelo
+O modelo retorna uma **probabilidade contínua de churn (score 0–1)**.
+A classificação binária (em risco / não em risco) é uma **decisão de
+negócio** aplicada via threshold de corte, calibrado com base na
+análise de custo de Falso Positivo vs. Falso Negativo.
 
-## 5. Prediction Task (Tarefa de Predição)
-O modelo entrega como saída um **score de probabilidade contínuo entre 0 e 1**, representando a propensão de churn de cada cliente.
+**Threshold padrão:** 0.5 (ajustável — dado o custo assimétrico
+FN > FP, o threshold deve favorecer recall)
 
-- **Output do modelo:** `P(churn | features)` — valor contínuo no intervalo [0, 1]
-- **Classificação binária ("em risco" / "não risco"):** decisão de negócio aplicada via threshold sobre o score, **não é um output do modelo**
-- O threshold padrão é 0.5, mas deve ser calibrado com base na análise de custo assimétrico (FN >> FP)
+## 5. Dados
+- **Dataset:** Telco Customer Churn (IBM) — arquivo CSV
+  disponibilizado periodicamente para retreinamento regular
+- **Volume:** 7.043 registros × 33 features
+- **Features relevantes:** tenure, MonthlyCharges, TotalCharges,
+  Contract, InternetService, PaymentMethod, etc.
+- **Features descartadas:** customerID (identificador sem valor
+  preditivo)
+- **Problema de qualidade:** TotalCharges contém espaços em branco
+  → converter para float, preencher nulos com mediana
 
----
+## 6. Features
+- **Demográficas:** Gender, Senior Citizen, Partner, Dependents
+- **Geográficas:** City, State, Zip Code, Latitude, Longitude
+- **Relacionamento:** Tenure Months (tempo de casa em meses)
+- **Serviços contratados:** Phone Service, Multiple Lines, Internet
+  Service, Online Security, Online Backup, Device Protection,
+  Tech Support, Streaming TV, Streaming Movies
+- **Contratuais/Financeiras:** Contract, Paperless Billing,
+  Payment Method, Monthly Charge, Total Charges
+- **Valor do cliente:** CLTV (Customer Lifetime Value calculado
+  previamente)
 
-## 6. Building Models (Construção do Modelo)
-- **Arquitetura:** MLP (Multi-Layer Perceptron) implementado em **PyTorch**, conforme exigência do tech challenge
-- **Serialização:** modelo salvo como `.pt` e encapsulado em wrapper sklearn-compatível para integração com pipeline de serving
-- **Pré-processamento:** StandardScaler para features numéricas, OneHotEncoder para features categóricas
-- **Tratamento de desbalanceamento:** class_weight aplicado na loss function
+## 7. Métricas Técnicas
+| Métrica   | Justificativa                                                                                     |
+|-----------|---------------------------------------------------------------------------------------------------|
+| ROC-AUC   | Comparação com baselines e monitoramento de degradação em produção                                |
+| PR-AUC    | Métrica principal de avaliação — mais informativa em classes desbalanceadas (~26% positivos)      |
+| Recall    | Prioridade — minimizar FN dado custo assimétrico FN > FP                                          |
+| Precision | Controle de FP — custo de campanhas desnecessárias                                                |
+| F1-Score  | Equilíbrio entre Precision e Recall em dataset desbalanceado                                      |
 
-O modelo retorna **apenas o score de probabilidade**. A definição do threshold de corte é responsabilidade do negócio, calibrada com base na análise de custo de FP vs. FN.
+Todas as métricas técnicas monitoradas a cada ciclo de retreinamento.
 
----
+## 8. Métricas de Negócio
+- **Taxa de churn real vs. previsto:** aderência do modelo ao
+  comportamento real da base
+- **Conversão das ações de retenção:** % dos clientes classificados
+  em risco que, após contato, permaneceram ativos
+- **Receita preservada estimada:** LTV médio × clientes retidos
 
-## 7. Métricas de Avaliação Offline
-| Métrica   | Justificativa |
-|-----------|---------------|
-| AUC-ROC   | Avaliação global da capacidade discriminativa |
-| Recall    | **Prioridade** — minimizar falsos negativos (churns não detectados), dado o custo assimétrico FN > FP |
-| Precision | Controle sobre falsos positivos (ofertas desnecessárias) |
-| F1-Score  | Equilíbrio entre Precision e Recall em dataset desbalanceado |
-| PR-AUC    | Mais informativa que ROC-AUC em classes desbalanceadas |
+## 9. Impacto e Custo
+- **Falso Negativo (FN):** cliente churn não detectado →
+  custo = LTV perdido
+- **Falso Positivo (FP):** cliente sem risco recebe campanha →
+  custo = desconto ou ligação
+- **Assimetria de custo:** FN > FP → threshold deve favorecer recall
+- **Dado para simulação:** taxa de churn histórica × LTV médio ×
+  volume de clientes
 
-**Custo assimétrico:**
-- Falso Negativo (FN): R$ 500 — cliente perdido sem intervenção
-- Falso Positivo (FP): R$ 50 — oferta de retenção desnecessária
-- Objetivo: minimizar custo total = `FN × 500 + FP × 50`
+## 10. Making Predictions
+- **Batch semanal:** execução sobre toda a base de clientes,
+  gerando e armazenando os scores de churn
+- **Consulta sob demanda:** endpoint `/predict` retorna a predição
+  já calculada no batch mais recente, sem nova inferência — útil
+  para uso em tempo real pela equipe de retenção durante atendimentos
+- **Pipeline de serving:** modelo PyTorch serializado (.pt)
+  encapsulado em wrapper sklearn-compatível para inferência via
+  FastAPI
+- **Recursos:** CPU
 
----
+## 11. Decisions
+- As previsões gerarão uma lista priorizada de clientes com risco
+  elevado
+- Integração com sistemas de dashboard para facilitar a tomada de
+  decisões
+- O processo será implementado em lote periódico (batch semanal)
+- API REST (FastAPI) com endpoint `/predict` e validação Pydantic,
+  consumível por qualquer sistema interno
 
-## 8. Making Predictions (Inferência em Produção)
-A estratégia de serving adota **batch semanal como modo principal**, com endpoint de consulta como interface para o time de negócio:
-
-### Batch semanal (modo principal)
-- Toda semana o pipeline processa **toda a base de clientes ativos**
-- Os scores calculados são armazenados em banco de dados (tabela `churn_scores`)
-- O modelo PyTorch serializado (`.pt`) é carregado uma vez e executado em lote
-
-### Endpoint `/predict` (modo de consulta)
-- Recebe o `customerID` como parâmetro
-- **Consulta o score já calculado** no banco de dados — o modelo não é executado novamente
-- Latência alvo p99 < 200ms, garantida pela consulta em banco e não pela inferência online
-- Usado pelo time de CRM para ações pontuais entre os ciclos de batch
-
----
-
-## 9. Monitoring (Monitoramento em Produção)
-
-### Camada Técnica
-Monitoradas a cada ciclo de retreinamento (semanal):
-
-| Métrica        | Alerta |
-|----------------|--------|
-| AUC-ROC        | Queda > 5% vs baseline |
-| Recall         | Queda > 5% vs baseline (prioridade por custo assimétrico) |
-| Precision      | Variação > 10% |
-| F1-Score mínimo | < 0.60 |
-| Distribuição de features (data drift) | PSI > 0.2 em qualquer feature principal |
-
-### Camada de Negócio
-Monitoradas mensalmente em conjunto com o time de retenção:
-
-| Métrica                          | Descrição |
-|----------------------------------|-----------|
-| Taxa de churn real vs. previsto  | Comparação entre clientes sinalizados como risco e os que efetivamente cancelaram |
-| Conversão das ações de retenção  | % de clientes contatados que permaneceram ativos |
-| Receita preservada estimada      | Valor retido com base nas ações disparadas pelo modelo |
-
-### Ciclo de revisão
-- **Retreinamento automático:** triggerizado quando F1 cai > 5% vs baseline ou PSI > 0.2
-- **Revisão manual:** trimestral, com análise de custo-benefício das decisões de threshold
-
----
-
-## 10. SLOs (Service Level Objectives)
+## 12. SLOs (Service Level Objectives)
 | SLO | Valor alvo |
 |-----|-----------|
-| Latência p99 do endpoint `/predict` | < 200ms |
-| Disponibilidade da API | > 99% |
+| Latência p99 da API | < 200ms |
+| Disponibilidade | > 99% |
 | F1-Score mínimo em produção | > 0.60 |
-| Trigger de retreino automático | F1 cai > 5% vs baseline |
+| Retreino automático trigger | F1 cai > 5% vs baseline |
 
----
+## 13. Monitoramento
+- **Alertas técnicos:** degradação de AUC-ROC abaixo do threshold
+  definido; F1 cai > 5% vs baseline
+- **Alertas de negócio:** queda na taxa de conversão das ações
+- **Revisão:** semanal de predições
+- **Retreinamento:** mensal ou quando alertas forem acionados
 
-## 11. Riscos e Limitações
-- Dataset estático (snapshot): não captura sazonalidade ou mudanças de comportamento ao longo do tempo
-- Viés geográfico: dados de uma única operadora, pode não generalizar para outros contextos
-- Features de cobrança podem mudar com reajustes de preço, exigindo monitoramento de data drift
-- Modelo não deve ser usado para decisões discriminatórias (ex: negar serviços a clientes)
+## 14. Riscos e Limitações
+- Dataset estático (snapshot): não captura sazonalidade ou mudanças
+  de comportamento ao longo do tempo
+- Viés geográfico: dados de uma única operadora, pode não
+  generalizar para outros contextos
+- Features de cobrança podem mudar com reajustes de preço,
+  impactando a distribuição dos dados de entrada
+- Modelo não deve ser usado para decisões discriminatórias
+  (ex: negar serviços a clientes)
