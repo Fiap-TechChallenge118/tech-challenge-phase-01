@@ -56,13 +56,19 @@ class TestEvaluate:
         assert 0.0 <= metrics["recall"] <= 1.0
 
     def test_custom_threshold_affects_predictions(self, trained_model, binary_data):
-        """Threshold menor deve aumentar recall (mais positivos detectados)."""
+        """Threshold menor deve aumentar recall (mais positivos detectados).
+
+        Recall monotonicamente cresce ao abaixar o threshold — garantido para qualquer modelo.
+        Precision não é monotônica com pesos aleatórios, portanto não é verificada aqui.
+        """
         X, y = binary_data
         metrics_05 = evaluate(trained_model, X, y, threshold=0.5)
         metrics_01 = evaluate(trained_model, X, y, threshold=0.1)
-        # Com threshold=0.1 quase tudo vira positivo → recall máximo, precision mínima
         assert metrics_01["recall"] >= metrics_05["recall"]
-        assert metrics_01["precision"] <= metrics_05["precision"]
+
+        # Com threshold=0.9 quase nada vira positivo → recall mínimo
+        metrics_09 = evaluate(trained_model, X, y, threshold=0.9)
+        assert metrics_09["recall"] <= metrics_05["recall"]
 
     def test_model_set_to_eval_mode(self, trained_model, binary_data):
         """evaluate() deve rodar em modo eval — resultado deve ser determinístico."""

@@ -147,8 +147,37 @@ def health():
     return HealthResponse(status="ok", model_loaded=_state["model"] is not None)
 
 
-@app.get(
+@app.post(
     "/predict",
+    response_model=PredictionResponse,
+    tags=["predict"],
+    responses={
+        422: {"description": "Payload inválido — campo ausente, tipo incorreto ou valor categórico fora do conjunto."},
+        503: {"description": "Artefatos de modelo não carregados — execute src/pipeline.py primeiro."},
+    },
+)
+def predict(customer: CustomerFeatures):
+    """Executa inferência on-demand para um cliente com features fornecidas no payload.
+
+    O modelo retorna um score de probabilidade contínuo [0, 1]. A classificação binária é
+    aplicada via threshold calibrado por análise de custo (FN = R$500, FP = R$50).
+    """
+    if _state["model"] is None:
+        raise HTTPException(status_code=503, detail="Modelo não disponível. Execute src/pipeline.py primeiro.")
+
+    threshold = _state["threshold"]
+    row = pd.DataFrame([customer.to_dataframe_row()])
+    X = _state["preprocessor"].transform(row)
+
+    with torch.no_grad():
+        prob = float(torch.sigmoid(_state["model"](torch.tensor(X, dtype=torch.float32))).squeeze())
+
+    logger.info("Prediction — churn_probability=%.4f churn_prediction=%s", prob, prob >= threshold)
+    return PredictionResponse(churn_probability=round(prob, 4), churn_prediction=prob >= threshold)
+
+
+@app.get(
+    "/predict/batch",
     response_model=PredictionResponse,
     tags=["predict"],
     responses={
@@ -156,8 +185,8 @@ def health():
         503: {"description": "Base de scores não encontrada — execute src/batch_predict.py primeiro."},
     },
 )
-def predict_lookup(customer_id: str = Query(..., description="CustomerID do cliente (ex: 7590-VHVEG)")):
-    """Consulta o score de churn já calculado pelo batch semanal para um cliente específico.
+def predict_batch_lookup(customer_id: str = Query(..., description="CustomerID do cliente (ex: 7590-VHVEG)")):
+    """Consulta o score de churn pré-calculado pelo batch semanal para um cliente específico.
 
     O score é buscado no banco de dados local (scores.db) populado por src/batch_predict.py.
     O modelo **não é executado** durante esta chamada — latência garantida pela consulta em banco.
@@ -180,40 +209,8 @@ def predict_lookup(customer_id: str = Query(..., description="CustomerID do clie
         raise HTTPException(status_code=404, detail=f"Cliente '{customer_id}' não encontrado na base de scores.")
 
     prob, pred = row
-    logger.info("Score lookup — customer_id=%s churn_probability=%.4f", customer_id, prob)
+    logger.info("Batch lookup — customer_id=%s churn_probability=%.4f", customer_id, prob)
     return PredictionResponse(churn_probability=prob, churn_prediction=bool(pred))
-
-
-@app.post(
-    "/predict/online",
-    response_model=PredictionResponse,
-    tags=["predict"],
-    responses={
-        422: {"description": "Payload inválido — campo ausente, tipo incorreto ou valor categórico fora do conjunto permitido."},
-        503: {"description": "Artefatos de modelo não carregados — execute src/pipeline.py primeiro."},
-    },
-)
-def predict_online(customer: CustomerFeatures):
-    """Executa inferência on-demand para um cliente com features fornecidas no payload.
-
-    Uso recomendado: desenvolvimento, testes e clientes recém-cadastrados que ainda não
-    passaram pelo ciclo de batch semanal. Para consulta de scores da base existente, use **GET /predict**.
-
-    O modelo retorna um score de probabilidade contínuo [0, 1]. A classificação binária é
-    aplicada via threshold calibrado por análise de custo (FN = R$500, FP = R$50).
-    """
-    if _state["model"] is None:
-        raise HTTPException(status_code=503, detail="Modelo não disponível. Execute src/pipeline.py primeiro.")
-
-    threshold = _state["threshold"]
-    row = pd.DataFrame([customer.to_dataframe_row()])
-    X = _state["preprocessor"].transform(row)
-
-    with torch.no_grad():
-        prob = float(torch.sigmoid(_state["model"](torch.tensor(X, dtype=torch.float32))).squeeze())
-
-    logger.info("Online prediction — churn_probability=%.4f churn_prediction=%s", prob, prob >= threshold)
-    return PredictionResponse(churn_probability=round(prob, 4), churn_prediction=prob >= threshold)
 
 
 @app.exception_handler(Exception)
