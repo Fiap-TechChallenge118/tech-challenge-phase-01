@@ -44,13 +44,14 @@ def evaluate(
 
     metrics = {
         # F1-Score: média harmônica de precision e recall — principal métrica para dados desbalanceados (churn ~26%)
-        "f1":        f1_score(y_test, preds),
+        "f1":        f1_score(y_test, preds, zero_division=0),
         # ROC-AUC: mede a capacidade do modelo de separar as classes em todos os thresholds possíveis.
         # Usa as probabilidades brutas (probs), não os rótulos — independente do threshold escolhido.
         "roc_auc":   roc_auc_score(y_test, probs),
         # Precision: dos clientes classificados como churn, quantos realmente foram?
         # Precision baixa = muitos alarmes falsos (FP) → campanhas de retenção desnecessárias.
-        "precision": precision_score(y_test, preds),
+        # zero_division=0: quando nenhuma amostra é predita como positiva, precision = 0.0 (sem warning)
+        "precision": precision_score(y_test, preds, zero_division=0),
         # Recall: dos clientes que realmente foram embora, quantos o modelo detectou?
         # Recall baixo = muitos churns não detectados (FN) → clientes perdidos sem intervenção.
         "recall":    recall_score(y_test, preds),

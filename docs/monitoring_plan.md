@@ -2,12 +2,15 @@
 
 ## 1. Métricas de Modelo
 
-| Métrica | Frequência | Alerta |
-|---|---|---|
-| F1-Score (produção) | Semanal | < 0.58 (queda > 5% vs baseline 0.628) |
-| ROC-AUC | Semanal | < 0.79 (queda > 5% vs baseline 0.840) |
-| Taxa de churn previsto | Diária | Desvio > 10pp da média histórica (~26%) |
-| Calibração (Brier Score) | Mensal | > 0.20 |
+| Métrica | Frequência | Baseline | Alerta |
+|---|---|---|---|
+| F1-Score | Semanal | 0.628 | < 0.597 (queda > 5%) |
+| ROC-AUC | Semanal | 0.840 | < 0.798 (queda > 5%) |
+| PR-AUC | Semanal | 0.637 | < 0.605 (queda > 5%) |
+| Precision | Semanal | 0.579 | < 0.550 (queda > 5%) |
+| Recall | Semanal | 0.687 | < 0.653 (queda > 5%) |
+| Taxa de churn previsto | Diária | ~26% | Desvio > 10pp da média histórica |
+| Calibração (Brier Score) | Mensal | — | > 0.20 |
 
 > Métricas de modelo requerem ground truth — calcular com lag de 30 dias (tempo médio para confirmar churn real).
 
@@ -53,11 +56,12 @@ report.save_html("drift_report.html")
 
 ## 4. Alertas e Playbook de Resposta
 
-### Alerta 1 — Degradação de F1 > 5%
+### Alerta 1 — Degradação de F1, PR-AUC, Precision ou Recall > 5%
 1. Verificar se há drift nas features (PSI > 0.2).
 2. Se drift confirmado → acionar retreino com dados recentes.
 3. Se sem drift → investigar mudança na distribuição do target (conceito drift).
-4. Registrar novo experimento no MLflow e promover modelo se F1 melhorar.
+4. Registrar novo experimento no MLflow e promover modelo se todas as métricas melhorarem.
+5. Atenção especial ao Recall: queda indica aumento de falsos negativos (clientes perdidos sem detecção), custo de R$ 500 cada.
 
 ### Alerta 2 — Latência p99 > 200ms
 1. Verificar logs do middleware para identificar requests lentos.

@@ -82,7 +82,9 @@ def test_predict_online_rejects_inconsistent_services(client):
     assert response.status_code == 422
 
 
-def test_predict_batch_lookup_returns_503_without_db(client):
+def test_predict_batch_lookup_returns_503_without_db(client, monkeypatch):
     """GET /predict/batch sem scores.db deve retornar 503 (banco não encontrado)."""
+    import api.main
+    monkeypatch.setattr(api.main, "SCORES_DB_PATH", Path("/nonexistent/scores.db"))
     response = client.get("/predict/batch?customer_id=7590-VHVEG")
     assert response.status_code in (404, 503)

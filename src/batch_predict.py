@@ -19,7 +19,7 @@ import pandas as pd
 import torch
 
 from src.model import ChurnMLP
-from src.preprocessing import CATEGORICAL_FEATURES, NUMERIC_FEATURES
+from src.preprocessing import CATEGORICAL_FEATURES, NUMERIC_FEATURES, _clean
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +58,7 @@ def run_batch_predict(data_path: str) -> int:
     model.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
     model.eval()
 
-    df = pd.read_csv(data_path)
-    df["Total Charges"]   = pd.to_numeric(df["Total Charges"],   errors="coerce").fillna(0)
-    df["Monthly Charges"] = pd.to_numeric(df["Monthly Charges"], errors="coerce")
+    df = _clean(pd.read_csv(data_path))
 
     X = preprocessor.transform(df[FEATURE_COLS])
 
@@ -101,4 +99,4 @@ def run_batch_predict(data_path: str) -> int:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
     n = run_batch_predict("data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv")
-    print(f"Scores calculados para {n} clientes → {SCORES_DB_PATH}")
+    print(f"Scores calculados para {n} clientes -> {SCORES_DB_PATH}")
