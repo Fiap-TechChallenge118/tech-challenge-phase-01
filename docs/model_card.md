@@ -32,9 +32,9 @@ Avaliação no test set (20% holdout, estratificado).
 
 | Modelo                | F1-Score   | ROC-AUC    | PR-AUC        | Precision  | Recall    |
 |-----------------------|------------|------------|---------------|------------|-----------|
-| DummyClassifier       | 0.0000     | 0.500 0    | 0.2654        | 0.000      | 0.000     |
-| Logistic Regression   | 0.6173     | 0.8488     | 0.6453        | 0.5105     | 0.7807     |
-| **MLP (produção)**    | **0.628**  | **0.8465** | **0.6367**    | **0.5845** | **0.6845** |
+| DummyClassifier       | 0.000      | 0.500      | 0.265         | 0.000      | 0.000     |
+| Logistic Regression   | 0.613      | 0.841      | 0.632         | 0.503      | 0.783     |
+| **MLP (produção)**    | **0.623**  | **0.835**  | **0.626**     | **0.576** | **0.679**  |
 
 O MLP apresenta precision superior à Regressão Logística (+4.7 pp) com recall menor (-11.3 pp). Para o problema de churn, em que falsos negativos têm custo maior, a Regressão Logística leva vantagem em recall. 
 O threshold do MLP pode ser ajustado para equilibrar esse trade-off.
