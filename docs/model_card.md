@@ -89,28 +89,28 @@ Threshold = 0.5, test set (n = 1.409).
 
 A feature `Contract` é o preditor mais forte do dataset. A taxa de churn real varia radicalmente entre os grupos, o que impacta diretamente a performance do modelo em cada segmento.
 
-| Contract       | n   | % Churn Real | Precision | Recall | F1    | Impacto no Modelo                                                                |
-|----------------|-----|--------------|-----------|--------|-------|----------------------------------------------------------------------------------|
-| Month-to-month | 773 | 42.6%        | 0.560     | 0.818  | 0.665 | Subgrupo mais representado no treino (modelo mais calibrado aqui)                |
-| One year       | 300 | 12.0%        | 0.462     | 0.167  | 0.245 | Recall menor (poucos exemplos positivos para aprender)                           |
-| Two year       | 336 | 2.7%         | 0.000     | 0.000  | 0.000 | Recall muito baixo (churn extremamente raro; modelo tende a prever não-churn)    |
+| Contract       | n   | % Churn Real | F1    | ROC-AUC | PR-AUC | Precision | Recall | Impacto no Modelo                                                             |
+|----------------|-----|--------------|-------|---------|--------|-----------|--------|-------------------------------------------------------------------------------|
+| Month-to-month | 773 | 42.6%        | 0.665 | 0.748   | 0.665  | 0.560     | 0.818  | Subgrupo mais representado no treino (modelo mais calibrado aqui)             |
+| One year       | 300 | 12.0%        | 0.245 | 0.787   | 0.358  | 0.462     | 0.167  | Recall menor (poucos exemplos positivos para aprender)                        |
+| Two year       | 336 | 2.7%         | 0.000 | 0.839   | 0.110  | 0.000     | 0.000  | Recall muito baixo (churn extremamente raro; modelo tende a prever não-churn) |
 
 **Risco identificado:** o modelo foi treinado majoritariamente com churners do tipo mensal. Clientes com contratos anuais ou bianuais que desenvolvem intenção de churn têm menor probabilidade de serem detectados.
 
 ### Por perfil demográfico (`Senior Citizen`)
 
-| Senior Citizen | n     | % Churn Real | Precision | Recall | F1    | Comportamento Esperado                                                                   |
-|----------------|-------|--------------|-----------|--------|-------|------------------------------------------------------------------------------------------|
-| No             | 1.187 | 23.3%        | 0.540     | 0.688  | 0.605 | Grupo dominante (modelo bem calibrado)                                                   |
-| Yes            | 222   | 44.1%        | 0.603     | 0.867  | 0.711 | Taxa de churn elevada; modelo funciona melhor, mas variável é potencialmente sensível    |
+| Senior Citizen | n     | % Churn Real | F1    | ROC-AUC | PR-AUC | Precision | Recall | Comportamento Esperado                                                                |
+|----------------|-------|--------------|-------|---------|--------|-----------|--------|---------------------------------------------------------------------------------------|
+| No             | 1.187 | 23.3%        | 0.605 | 0.847   | 0.625  | 0.540     | 0.688  | Grupo dominante (modelo bem calibrado)                                                |
+| Yes            | 222   | 44.1%        | 0.711 | 0.776   | 0.670  | 0.603     | 0.867  | Taxa de churn elevada; modelo funciona melhor, mas variável é potencialmente sensível |
 
 ### Por serviço de internet (`Internet Service`)
 
-| Internet Service | n   | % Churn Real | Precision | Recall | F1    |
-|------------------|-----|--------------|-----------|--------|-------|
-| DSL              | 484 | 20.0%        | 0.479     | 0.598  | 0.532 |
-| Fiber optic      | 613 | 41.1%        | 0.583     | 0.861  | 0.696 |
-| No               | 312 | 8.0%         | 0.000     | 0.000  | 0.000 |
+| Internet Service | n   | % Churn Real | F1    | ROC-AUC | PR-AUC | Precision | Recall |
+|------------------|-----|--------------|-------|---------|--------|-----------|--------|
+| DSL              | 484 | 20.0%        | 0.532 | 0.812   | 0.538  | 0.479     | 0.598  |
+| Fiber optic      | 613 | 41.1%        | 0.696 | 0.793   | 0.687  | 0.583     | 0.861  |
+| No               | 312 | 8.0%         | 0.000 | 0.868   | 0.361  | 0.000     | 0.000  |
 
 Clientes de fibra têm churn alto e são bem representados no treino; o modelo tende a ser mais agressivo em prever churn para este segmento.
 
