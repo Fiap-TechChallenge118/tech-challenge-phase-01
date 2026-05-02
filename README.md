@@ -67,7 +67,7 @@ Uma operadora de telecomunicações enfrenta perda recorrente de clientes (churn
 
 A solução foi projetada em quatro camadas independentes e desacopladas, cada uma com responsabilidade bem definida:
 
-![Arquitetura do Sistema](https://i.imgur.com/aoasueL.png)
+![Arquitetura do Sistema](https://i.imgur.com/KtibwnS.png)
 
 
 
