@@ -391,6 +391,15 @@ ruff check .
 
 ## Endpoints da API
 
+| Rota | Método | Descrição |
+|------|--------|-----------|
+| `/health` | `GET` | Verifica se a API está no ar e se o modelo foi carregado |
+| `/predict` | `POST` | Inferência on-demand — recebe features do cliente e retorna probabilidade de churn |
+| `/predict/batch` | `GET` | Consulta score pré-calculado pelo batch semanal via `?customer_id=<id>` |
+| `/docs` | `GET` | Swagger UI com documentação interativa e formulário de teste |
+
+---
+
 ### `GET /health`
 
 Verifica se a API está no ar e se os artefatos foram carregados com sucesso.
