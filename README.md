@@ -67,33 +67,8 @@ Uma operadora de telecomunicações enfrenta perda recorrente de clientes (churn
 
 A solução foi projetada em quatro camadas independentes e desacopladas, cada uma com responsabilidade bem definida:
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         CAMADA DE DADOS                             │
-│   CSV bruto → limpeza → ColumnTransformer → arrays NumPy            │
-│   (src/preprocessing.py)                                            │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
-│                       CAMADA DE MODELAGEM                           │
-│   ChurnMLP(46 → 64 → 32 → 1) + early stopping + pos_weight         │
-│   Rastreamento de experimentos via MLflow                           │
-│   (src/model.py, src/train.py, src/evaluate.py, src/pipeline.py)   │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
-│                       CAMADA DE ARTEFATOS                           │
-│   preprocessor.pkl  │  model.pth  │  threshold.json  │  scores.db  │
-│   (data/processed/)                                                 │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
-│                        CAMADA DE SERVIÇO                            │
-│   FastAPI: /health  │  POST /predict  │  GET /predict/batch         │
-│   Validação Pydantic + middleware de latência                       │
-│   (api/main.py, api/schemas.py)                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+![Arquitetura do Sistema](docs/architecture_project.png)
+
 
 ### Princípios de Design
 
