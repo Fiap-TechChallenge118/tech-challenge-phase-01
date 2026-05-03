@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import sqlite3
 import time
 from contextlib import asynccontextmanager
@@ -10,19 +11,24 @@ from pathlib import Path
 import joblib
 import pandas as pd
 import torch
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from api.schemas import CustomerFeatures, HealthResponse, PredictionResponse
 from src.model import ChurnMLP
 
+load_dotenv()
+
 logger = logging.getLogger(__name__)
 
-# Paths dos artefatos gerados pelo src/pipeline.py
-PREPROCESSOR_PATH = Path("data/processed/preprocessor.pkl")
-MODEL_PATH        = Path("data/processed/model.pth")
-THRESHOLD_PATH    = Path("data/processed/threshold.json")
-SCORES_DB_PATH    = Path("data/processed/scores.db")
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
+
+# Paths dos artefatos — configuráveis via variáveis de ambiente
+PREPROCESSOR_PATH = Path(os.getenv("PREPROCESSOR_PATH", "data/processed/preprocessor.pkl"))
+MODEL_PATH        = Path(os.getenv("MODEL_PATH",        "data/processed/model.pth"))
+THRESHOLD_PATH    = Path(os.getenv("THRESHOLD_PATH",    "data/processed/threshold.json"))
+SCORES_DB_PATH    = Path(os.getenv("SCORES_DB_PATH",    "data/processed/scores.db"))
 
 # Estado global carregado no startup — evita re-load a cada request
 _state: dict = {"model": None, "preprocessor": None, "threshold": 0.5}
