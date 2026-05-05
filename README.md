@@ -24,7 +24,7 @@ Pipeline end-to-end: EDA → Baselines → MLP (PyTorch) → API (FastAPI) → D
 
 > ### 🎬 Vídeo STAR — Apresentação do Projeto
 > **`URL_VIDEO_STAR_AQUI`**
-> [![Vídeo STAR](https://img.shields.io/badge/🎬_Vídeo_STAR-Apresentação-red?logo=youtube&logoColor=white)](URL_VIDEO_STAR_AQUI)
+> [![Vídeo STAR](https://img.shields.io/badge/🎬_Vídeo_STAR-Apresentação-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=j86bATLFH-U)
 >
 > *Substitua pelo link do vídeo (YouTube, Google Drive, etc.).*
 
@@ -713,9 +713,9 @@ curl "http://churn-mlp-api.brazilsouth.azurecontainer.io:8000/predict/batch?cust
 
 > Substitua o placeholder abaixo pelo link do vídeo de apresentação.
 
-[![Vídeo STAR](https://img.shields.io/badge/🎬_Vídeo_STAR-Apresentação-red?logo=youtube&logoColor=white)](URL_VIDEO_STAR_AQUI)
+[![Vídeo STAR](https://img.shields.io/badge/🎬_Vídeo_STAR-Apresentação-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=j86bATLFH-U)
 
-**Link:** `URL_VIDEO_STAR_AQUI`
+**Link:** `https://www.youtube.com/watch?v=j86bATLFH-U`
 
 O vídeo segue o formato **STAR** (Situação, Tarefa, Ação, Resultado):
 
