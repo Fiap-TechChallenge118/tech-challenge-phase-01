@@ -23,7 +23,7 @@ Pipeline end-to-end: EDA → Baselines → MLP (PyTorch) → API (FastAPI) → D
 > Deploy em **Azure Container Instances** — região Brazil South.
 
 > ### 🎬 Vídeo STAR — Apresentação do Projeto
-> **`URL_VIDEO_STAR_AQUI`**
+> **`https://www.youtube.com/watch?v=j86bATLFH-U`**
 > [![Vídeo STAR](https://img.shields.io/badge/🎬_Vídeo_STAR-Apresentação-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=j86bATLFH-U)
 >
 > *Substitua pelo link do vídeo (YouTube, Google Drive, etc.).*
