@@ -25,8 +25,6 @@ Pipeline end-to-end: EDA → Baselines → MLP (PyTorch) → API (FastAPI) → D
 > ### 🎬 Vídeo STAR — Apresentação do Projeto
 > **`https://www.youtube.com/watch?v=j86bATLFH-U`**
 > [![Vídeo STAR](https://img.shields.io/badge/🎬_Vídeo_STAR-Apresentação-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=j86bATLFH-U)
->
-> *Substitua pelo link do vídeo (YouTube, Google Drive, etc.).*
 
 ---
 
@@ -710,8 +708,6 @@ curl "http://churn-mlp-api.brazilsouth.azurecontainer.io:8000/predict/batch?cust
 ---
 
 ## Vídeo STAR
-
-> Substitua o placeholder abaixo pelo link do vídeo de apresentação.
 
 [![Vídeo STAR](https://img.shields.io/badge/🎬_Vídeo_STAR-Apresentação-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=j86bATLFH-U)
 
