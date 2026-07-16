@@ -55,17 +55,20 @@ class TestEvaluate:
         metrics = evaluate(model, X, y)
         assert 0.0 <= metrics["recall"] <= 1.0
 
-    def test_custom_threshold_affects_predictions(self, binary_data):
-        """Threshold menor deve aumentar recall (mais positivos detectados)."""
+    def test_custom_threshold_affects_predictions(self, trained_model, binary_data):
+        """Threshold menor deve aumentar recall (mais positivos detectados).
+
+        Recall monotonicamente cresce ao abaixar o threshold — garantido para qualquer modelo.
+        Precision não é monotônica com pesos aleatórios, portanto não é verificada aqui.
+        """
         X, y = binary_data
-        # Modelo com pesos fixos via seed para resultado determinístico
-        torch.manual_seed(0)
-        model = ChurnMLP(input_dim=4, hidden_dims=[8], dropout=0.0)
-        model.eval()
-        metrics_05 = evaluate(model, X, y, threshold=0.5)
-        metrics_01 = evaluate(model, X, y, threshold=0.1)
-        # threshold=0.1 classifica quase tudo como positivo → recall >= recall com 0.5
+        metrics_05 = evaluate(trained_model, X, y, threshold=0.5)
+        metrics_01 = evaluate(trained_model, X, y, threshold=0.1)
         assert metrics_01["recall"] >= metrics_05["recall"]
+
+        # Com threshold=0.9 quase nada vira positivo → recall mínimo
+        metrics_09 = evaluate(trained_model, X, y, threshold=0.9)
+        assert metrics_09["recall"] <= metrics_05["recall"]
 
     def test_model_set_to_eval_mode(self, trained_model, binary_data):
         """evaluate() deve rodar em modo eval — resultado deve ser determinístico."""
