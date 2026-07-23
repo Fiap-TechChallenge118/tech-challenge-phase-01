@@ -1,7 +1,7 @@
 # Churn MLP — Tech Challenge Fase 01
 
-Rede Neural (MLP) para previsão de churn em operadora de telecomunicações.
-Pipeline end-to-end: EDA → Baselines → MLP (PyTorch) → API (FastAPI) → Deploy (AWS).
+Rede Neural (MLP) para previsão de churn em operadora de telecomunicações.  
+Pipeline end-to-end: EDA → Baselines → MLP (PyTorch) → API (FastAPI) → Deploy (AWS ECS Fargate).
 
 ---
 
@@ -11,20 +11,21 @@ Pipeline end-to-end: EDA → Baselines → MLP (PyTorch) → API (FastAPI) → D
 churn-mlp/
 ├── data/
 │   ├── raw/                  # Dataset original (não versionado)
-│   └── processed/            # Artefatos gerados (preprocessor.pkl, model.pth)
+│   └── processed/            # Artefatos gerados (preprocessor.pkl, model.pth, threshold.json)
 ├── notebooks/
 │   ├── 01_eda.ipynb          # Análise exploratória
 │   ├── 02_baseline.ipynb     # DummyClassifier + LogisticRegression
-│   └── 03_mlp_training.ipynb # Treinamento e avaliação da MLP
+└── 03_mlp_training.ipynb # Treinamento e avaliação da MLP
 ├── src/
 │   ├── preprocessing.py      # ColumnTransformer, load_and_split
-│   ├── model.py              # ChurnMLP (nn.Module)
+│   ├── model.py              # ChurnMLP (nn.Module) + ChurnMLPWrapper (sklearn)
 │   ├── train.py              # Loop de treino + early stopping
-│   ├── evaluate.py           # Métricas + análise de custo
-│   └── pipeline.py           # Orquestrador end-to-end
+│   ├── evaluate.py           # Métricas + análise de custo FP/FN
+│   ├── pipeline.py           # Orquestrador end-to-end (treino + artefatos + S3)
+│   └── batch_predict.py      # Predição em lote para todos os clientes
 ├── api/
-│   ├── main.py               # FastAPI app (/health, /predict)
-│   └── schemas.py            # Pydantic models (input/output)
+│   ├── main.py               # FastAPI app (/health, /predict, /predict/batch)
+│   └── schemas.py            # Pydantic models (validação de input + output)
 ├── tests/
 │   ├── test_smoke.py         # Forward pass da MLP
 │   ├── test_schema.py        # Validação do dataset com pandera
@@ -33,20 +34,11 @@ churn-mlp/
 │   ├── ml_canvas.md          # ML Canvas (stakeholders, métricas, SLOs)
 │   ├── model_card.md         # Model Card (limitações, vieses, métricas)
 │   └── monitoring_plan.md    # Plano de monitoramento e alertas
-├── infra/
-│   ├── main.tf               # Provider AWS + backend S3
-│   ├── variables.tf          # Inputs da infra
-│   ├── locals.tf             # Valores derivados
-│   ├── data.tf               # Data sources IAM
-│   ├── outputs.tf            # Outputs: api_url, ecr_url, bucket
-│   ├── s3.tf                 # Bucket de artefatos
-│   ├── ecr.tf                # Repositório ECR
-│   ├── iam.tf                # Roles ECS (execution + task)
-│   ├── networking.tf         # VPC, subnets, IGW, security groups
-│   ├── alb.tf                # Application Load Balancer
-│   ├── ecs.tf                # Cluster + task definition + service Fargate
-│   └── terraform.tfvars.example  # Template de configuração
-├── Makefile                  # Atalhos: lint, test, train, run, tf-*, ecr-push
+├── infra/                    # Terraform (VPC, ECR, ECS Fargate, ALB, S3)
+├── examples/
+│   ├── payloads.json         # Payloads de exemplo (alto e baixo risco)
+│   └── curl_examples.sh      # Exemplos de chamada com curl
+├── Makefile                  # Todos os comandos do projeto
 ├── Dockerfile                # Imagem para deploy
 └── pyproject.toml            # Única fonte de verdade (deps + ruff + pytest)
 ```
@@ -55,57 +47,35 @@ churn-mlp/
 
 ## Pré-requisitos
 
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) — gerenciador de pacotes e ambientes virtuais
-- `make` — executor de comandos do projeto
+| Ferramenta | Versão mínima | Instalação |
+|---|---|---|
+| Python | 3.11+ | [python.org](https://www.python.org/downloads/) |
+| [uv](https://docs.astral.sh/uv/) | qualquer | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| make | qualquer | `sudo apt-get install -y make` |
+| [Terraform](https://developer.hashicorp.com/terraform/install) | 1.7+ | ver instruções abaixo |
+| [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) | 2.x | ver link |
+| Docker | qualquer | [docs.docker.com](https://docs.docker.com/get-docker/) |
 
-### Instalar dependências de sistema (Debian/WSL)
-
-```bash
-sudo apt-get update && sudo apt-get install -y make
-```
-
-### Instalar o uv (caso não tenha)
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env   # adiciona uv ao PATH da sessão atual
-```
-
-Para tornar permanente, adicione ao seu `~/.bashrc` ou `~/.zshrc`:
-
-```bash
-source $HOME/.local/bin/env
-```
+> Terraform, AWS CLI e Docker são necessários apenas para o deploy na AWS.
 
 ---
 
-## Setup do Ambiente
+## Setup Local
 
-### 1. Criar o ambiente virtual
+### 1. Criar e ativar o ambiente virtual
 
 ```bash
 uv venv .venv
-```
-
-### 2. Ativar o ambiente
-
-```bash
 source .venv/bin/activate
 ```
 
-> Para desativar: `deactivate`
-
-### 3. Instalar dependências
+### 2. Instalar dependências
 
 ```bash
 uv pip install -e ".[dev]"
 ```
 
-O flag `-e` instala o projeto em modo editável (editable install).
-O grupo `[dev]` inclui `pytest` e `ruff`.
-
-### 4. Verificar instalação
+### 3. Verificar instalação
 
 ```bash
 python -c "import torch, sklearn, numpy, mlflow, fastapi; print('OK')"
@@ -113,232 +83,376 @@ python -c "import torch, sklearn, numpy, mlflow, fastapi; print('OK')"
 
 ---
 
-## Como Executar
+## Comandos do Projeto
 
-> Todos os comandos assumem que o ambiente virtual está ativo.
+| Comando | O que faz |
+|---|---|
+| `make init` | Baixa dataset + `tf-init` + `tf-apply` (provisiona infra na AWS) |
+| `make deploy` | `train` + `ecr-push` (treina, envia artefatos e sobe a imagem) |
+| `make train` | Treina o pipeline completo e salva artefatos em `data/processed/` |
+| `make test` | Roda todos os testes com pytest |
+| `make lint` | Verifica qualidade do código com ruff |
+| `make run` | Sobe a API localmente com hot-reload |
+| `make batch` | Executa predição em lote para todos os clientes |
+| `make tf-init` | Inicializa o Terraform e conecta ao state remoto |
+| `make tf-plan` | Mostra o plano de execução sem aplicar |
+| `make tf-apply` | Provisiona toda a infraestrutura na AWS |
+| `make tf-destroy` | Destrói todos os recursos AWS |
+| `make ecr-push` | Build + push da imagem Docker + reinicia o ECS service |
+| `make artifacts-push` | Upload manual dos artefatos para S3 |
 
-### Treinar o pipeline completo
+---
+
+## Desenvolvimento Local
+
+### Treinar o modelo
 
 ```bash
 make train
-# equivale a: python -m src.pipeline
 ```
 
-### Rodar a API
-
-```bash
-make run
-# equivale a: uvicorn api.main:app --reload
+Output esperado:
+```
+INFO src.preprocessing — Data split — train: 5634, test: 1409, churn rate: 26.54%
+INFO src.train — Epoch 1/100 — train_loss: 0.5821 | val_loss: 0.5634
+...
+INFO src.train — Early stopping na epoch 47
+INFO src.evaluate — Evaluation — {'f1': 0.628, 'roc_auc': 0.840, 'precision': 0.579, 'recall': 0.687}
+INFO src.pipeline — Preprocessor salvo em data/processed/preprocessor.pkl
+INFO src.pipeline — Model state_dict salvo em data/processed/model.pth
+INFO src.pipeline — Threshold ótimo salvo em data/processed/threshold.json — threshold=0.3800
 ```
 
-Acesse: `http://localhost:8000/docs` (Swagger UI automático do FastAPI)
+Artefatos gerados em `data/processed/`:
+- `preprocessor.pkl` — ColumnTransformer fitado no treino
+- `model.pth` — pesos da rede (state_dict)
+- `threshold.json` — threshold calibrado por análise de custo (FN=R$500, FP=R$50)
 
 ### Rodar os testes
 
 ```bash
 make test
-# equivale a: pytest tests/ -v
 ```
+
+Output esperado:
+```
+tests/test_smoke.py::test_forward_pass PASSED
+tests/test_smoke.py::test_output_shape PASSED
+tests/test_schema.py::test_dataset_schema PASSED
+tests/test_api.py::test_health PASSED
+tests/test_api.py::test_predict_valid_payload PASSED
+tests/test_api.py::test_predict_invalid_payload PASSED
+
+6 passed in X.XXs
+```
+
+### Rodar a API localmente
+
+```bash
+make run
+```
+
+Output esperado:
+```
+INFO:     Artefatos carregados — source=local input_dim=46 threshold=0.3800
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+```
+
+Acesse `http://localhost:8000/docs` para o Swagger UI interativo.
 
 ### Verificar qualidade do código
 
 ```bash
 make lint
-# equivale a: ruff check .
+# Esperado: sem output (zero erros)
 ```
 
----
-
-## MLflow
-
-Para visualizar os experimentos registrados:
+### MLflow — visualizar experimentos
 
 ```bash
 mlflow ui
+# Acesse: http://localhost:5000
 ```
-
-Acesse: `http://localhost:5000`
 
 ---
 
-## Docker
+## API — Endpoints
 
-### Build
+### `GET /health`
 
-```bash
-docker build -t churn-api .
-```
-
-### Run local (com artefatos locais)
-
-```bash
-docker run -p 8000:8000 \
-  -v $(pwd)/data/processed:/app/data/processed \
-  churn-api
-```
-
-### Testar
+Verifica se a API está no ar e se os artefatos foram carregados.
 
 ```bash
 curl http://localhost:8000/health
 ```
 
+Resposta:
+```json
+{
+  "status": "ok",
+  "model_loaded": true
+}
+```
+
+### `POST /predict`
+
+Inferência on-demand para um cliente.
+
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "gender": "Female",
+    "Senior Citizen": "Yes",
+    "partner": "No",
+    "dependents": "No",
+    "Phone Service": "Yes",
+    "Multiple Lines": "Yes",
+    "Internet Service": "Fiber optic",
+    "Online Security": "No",
+    "Online Backup": "No",
+    "Device Protection": "No",
+    "Tech Support": "No",
+    "Streaming TV": "Yes",
+    "Streaming Movies": "Yes",
+    "contract": "Month-to-month",
+    "Paperless Billing": "Yes",
+    "Payment Method": "Electronic check",
+    "Tenure Months": 2,
+    "Monthly Charges": 95.5,
+    "Total Charges": 191.0
+  }'
+```
+
+Resposta:
+```json
+{
+  "churn_probability": 0.8732,
+  "churn_prediction": true
+}
+```
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `churn_probability` | float [0–1] | Score contínuo de probabilidade de churn |
+| `churn_prediction` | bool | `true` se `churn_probability >= threshold` calibrado por custo |
+
+### `GET /predict/batch`
+
+Consulta score pré-calculado pelo batch semanal sem executar o modelo.
+
+```bash
+curl "http://localhost:8000/predict/batch?customer_id=7590-VHVEG"
+```
+
+Resposta:
+```json
+{
+  "churn_probability": 0.7234,
+  "churn_prediction": true
+}
+```
+
+> Requer que `make batch` tenha sido executado antes. Retorna 404 se o cliente não existir na base.
+
+Payloads de exemplo (alto e baixo risco) disponíveis em `examples/payloads.json`.
+
 ---
 
-## Deploy AWS (ECS Fargate + ALB)
+## Deploy AWS
 
-A API é servida via **ECS Fargate** (container Docker sem gerenciamento de servidor) + **Application Load Balancer**.
-Os artefatos do modelo (`model.pth`, `preprocessor.pkl`, `threshold.json`) ficam em um **bucket S3** separado, carregados pelo container no startup. Isso permite atualizar o modelo sem rebuild de imagem.
+A API é servida via **ECS Fargate** + **Application Load Balancer**.  
+Os artefatos do modelo ficam em um **bucket S3** separado e são baixados pelo container no startup — permitindo atualizar o modelo sem rebuild de imagem.
 
-> **Por que ECS Fargate e não Lambda?**
-> PyTorch demora ~10-15s para importar, o que excede o timeout de init do Lambda (10s) e o limite do API Gateway (29s). O ECS Fargate não tem essas restrições — o container sobe uma vez e fica em memória.
+> **Por que ECS Fargate e não Lambda?**  
+> PyTorch demora ~10–15s para importar, excedendo o timeout de init do Lambda (10s) e o limite do API Gateway (29s). O ECS Fargate não tem essas restrições.
 
 ### Estimativa de custo
 
-| Recurso | Custo/hora | Custo/mês (24h) |
-|---|---|---|
-| Fargate (1 vCPU + 2GB) | ~$0.05 | ~$36 |
-| ALB | ~$0.008 | ~$16 |
-| ECR + S3 | — | ~$0.20 |
-| **Total** | | **~$52/mês** |
+| Recurso | Custo/mês (24h) |
+|---|---|
+| Fargate (1 vCPU + 2GB) | ~$36 |
+| ALB | ~$16 |
+| ECR + S3 | ~$0.20 |
+| **Total** | **~$52/mês** |
 
-> **Para uso acadêmico:** suba, grave o vídeo STAR demonstrando o endpoint (~2-3h), e destrua com `make tf-destroy`. Custo total: **~$0.20**.
+> **Para uso acadêmico:** suba, grave o vídeo demonstrando o endpoint (~2–3h) e destrua com `make tf-destroy`. Custo total: ~$0.20.
 
-### Pré-requisitos
+### Pré-requisitos AWS
 
-- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.7
-- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html)
-- Docker
+**0. Instalar o Terraform** (obrigatório — não incluído no `uv`)
 
-### Configurar credenciais AWS
+O Terraform é um binário Go independente e precisa ser instalado separadamente.
+A forma recomendada é via repositório oficial HashiCorp:
+
+```bash
+# Adicionar repositório HashiCorp
+wget -O- https://apt.releases.hashicorp.com/gpg | \
+  sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+  https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+  sudo tee /etc/apt/sources.list.d/hashicorp.list
+
+sudo apt-get update && sudo apt-get install -y terraform
+
+# Verificar
+terraform version
+# Terraform v1.x.x
+```
+
+> Para outros sistemas operacionais: [developer.hashicorp.com/terraform/install](https://developer.hashicorp.com/terraform/install)
+
+**1. Configurar credenciais**
 
 ```bash
 aws configure
+# AWS Access Key ID:     <sua access key>
+# AWS Secret Access Key: <sua secret key>
+# Default region name:   us-east-2
+# Default output format: json
 ```
 
-```
-AWS Access Key ID:     <sua access key>
-AWS Secret Access Key: <sua secret key>
-Default region name:   us-east-2
-Default output format: json
+**2. Configurar o profile no `.env`**
+
+```bash
+cp .env.example .env
+# editar .env e definir AWS_PROFILE com o nome do seu profile
 ```
 
-> Para gerar as chaves: **AWS Console → IAM → Users → seu usuário → Security credentials → Create access key**
-
-### Estrutura da infra
-
+Para verificar qual conta está ativa:
+```bash
+aws sts get-caller-identity
 ```
-infra/
-├── main.tf           # provider AWS + backend S3 (state remoto compartilhado)
-├── variables.tf      # inputs: região, project_name, image_tag
-├── locals.tf         # valores derivados (bucket name, image URI)
-├── data.tf           # data sources (IAM policy documents)
-├── outputs.tf        # api_url (ALB), ecr_repository_url, artifacts_bucket
-├── s3.tf             # bucket de artefatos do modelo (com versionamento)
-├── ecr.tf            # repositório ECR para a imagem Docker
-├── iam.tf            # ecs_execution role + ecs_task role (s3:GetObject)
-├── networking.tf     # VPC, subnets públicas, IGW, security groups
-├── alb.tf            # Application Load Balancer + target group + listener
-├── ecs.tf            # cluster + task definition + service Fargate
-├── terraform.tfvars          # valores reais (não commitado — ver .gitignore)
-└── terraform.tfvars.example  # template para o time
+
+**3. Criar o bucket de state remoto do Terraform** (uma única vez por conta AWS)
+
+O bucket precisa existir antes do `make tf-init`. Contas com políticas restritivas
+(ex: AWS Academy / Vocareum) não permitem criar buckets via CLI — use o Console:
+
+1. Acesse [AWS Console → S3 → Create bucket](https://s3.console.aws.amazon.com/s3/bucket/create)
+2. **Bucket name:** `churn-mlp-tfstate-tc1` (ou `churn-mlp-tfstate-{project_id}` se alterou o `project_id`)
+3. **Region:** `us-east-2`
+4. Em **Bucket Versioning**, selecione **Enable**
+5. Clique em **Create bucket**
+
+> Em contas sem restrições de IAM, é possível criar via CLI:
+> ```bash
+> aws s3api create-bucket --bucket churn-mlp-tfstate-tc1 \
+>   --region us-east-2 --create-bucket-configuration LocationConstraint=us-east-2
+> aws s3api put-bucket-versioning --bucket churn-mlp-tfstate-tc1 \
+>   --versioning-configuration Status=Enabled
+> ```
+
+**4. Configurar variáveis do Terraform**
+
+```bash
+cp infra/terraform.tfvars.example infra/terraform.tfvars
+# Ajustar project_id se necessário para evitar colisão de nomes
 ```
 
 ### Primeiro deploy
 
-**1. Criar o bucket de tfstate** (state remoto — uma única vez por conta AWS):
-
 ```bash
-aws s3api create-bucket --bucket churn-mlp-tfstate-tc1 \
-  --region us-east-2 --create-bucket-configuration LocationConstraint=us-east-2
-
-aws s3api put-bucket-versioning --bucket churn-mlp-tfstate-tc1 \
-  --versioning-configuration Status=Enabled
+make init
 ```
 
-**2. Configurar variáveis:**
+Output esperado:
+```
+[1/3] Baixando dataset...
+[2/3] Inicializando Terraform...
+Initializing the backend...
+Successfully configured the backend "s3"!
+[3/3] Provisionando infra na AWS...
+aws_vpc.main: Creating...
+aws_ecr_repository.app: Creating...
+aws_s3_bucket.artifacts: Creating...
+...
+Apply complete! Resources: 18 added, 0 changed, 0 destroyed.
 
-```bash
-cp infra/terraform.tfvars.example infra/terraform.tfvars
+Outputs:
+
+api_url              = "http://churn-mlp-XXXXXXXXXXXX.us-east-2.elb.amazonaws.com"
+artifacts_bucket     = "churn-mlp-artifacts-tc1"
+cloudwatch_log_group = "/ecs/churn-mlp"
+ecr_repository_url   = "XXXXXXXXXXXX.dkr.ecr.us-east-2.amazonaws.com/churn-mlp"
+ecs_cluster_name     = "churn-mlp"
+ecs_service_name     = "churn-mlp"
+
+✓ init concluído -- próximo passo: make deploy
 ```
 
-**3. Provisionar a infraestrutura:**
-
 ```bash
-make tf-init    # conecta ao state remoto
-make tf-plan    # revisa o que será criado
-make tf-apply   # cria VPC, ECR, S3, IAM, ALB, ECS cluster + service
+make deploy
 ```
 
-**4. Fazer push da imagem para o ECR:**
-
-```bash
-make ecr-push   # build + push + force-new-deployment no ECS
+Output esperado:
+```
+[1/2] Treinando modelo e enviando artefatos para S3...
+INFO src.pipeline — Threshold ótimo salvo em data/processed/threshold.json — threshold=0.3800
+INFO src.pipeline — Upload concluído — s3://churn-mlp-artifacts-tc1/models/latest/model.pth
+INFO src.pipeline — Upload concluído — s3://churn-mlp-artifacts-tc1/models/latest/preprocessor.pkl
+INFO src.pipeline — Upload concluído — s3://churn-mlp-artifacts-tc1/models/latest/threshold.json
+[2/2] Build, push da imagem Docker e reinicializando ECS...
+Login Succeeded
+Successfully tagged XXXXXXXXXXXX.dkr.ecr.us-east-2.amazonaws.com/churn-mlp:latest
+The push refers to repository [...]
+latest: digest: sha256:... size: ...
+{
+    "service": "churn-mlp",
+    "clusterArn": "arn:aws:ecs:us-east-2:..."
+}
+✓ deploy concluído
 ```
 
-**5. Treinar e publicar os artefatos no S3:**
+Após o deploy, aguarde ~60s para o container subir e testar:
 
 ```bash
-export ARTIFACTS_BUCKET=churn-mlp-artifacts-tc1
-make train      # treina e faz upload automático para S3
-```
+# A URL é exibida nos outputs do tf-apply e também pode ser consultada a qualquer momento:
+terraform -chdir=infra output api_url
 
-**6. Testar o endpoint público:**
-
-```bash
-API_URL=$(terraform -chdir=infra output -raw api_url)
-curl $API_URL/health
+curl $(terraform -chdir=infra output -raw api_url)/health
+# {"status":"ok","model_loaded":true}
 ```
 
 ### Fluxo de retreino
 
+Para atualizar o modelo em produção sem recriar a infra:
+
 ```bash
-export ARTIFACTS_BUCKET=churn-mlp-artifacts-tc1
-make train
-# Novos artefatos sobem para s3://churn-mlp-artifacts-tc1/models/latest/
-# O ECS service pega os novos artefatos no próximo restart do container
-make ecr-push   # force-new-deployment para reiniciar o container
+make deploy
+# Retreina, sobe novos artefatos para S3 e reinicia o container ECS automaticamente
+```
+
+### Monitorar logs do container
+
+```bash
+aws logs tail $(terraform -chdir=infra output -raw cloudwatch_log_group) --follow
+```
+
+### Destruir a infraestrutura
+
+```bash
+make tf-destroy
+# Destrói todos os recursos AWS em ~2 minutos
 ```
 
 ### Outros membros do time
 
 ```bash
 cp infra/terraform.tfvars.example infra/terraform.tfvars
-make tf-init    # baixa o state do S3 automaticamente
+cp .env.example .env  # definir AWS_PROFILE
+make tf-init          # baixa o state do S3 automaticamente
 ```
-
-### Destruir a infraestrutura (após a entrega)
-
-```bash
-make tf-destroy  # destrói todos os recursos em ~2 minutos
-```
-
-### Variáveis de ambiente do container
-
-| Variável | Descrição | Valor padrão |
-|---|---|---|
-| `ARTIFACTS_BUCKET` | Nome do bucket S3 com os artefatos | definido pelo Terraform |
-| `ARTIFACTS_PREFIX` | Prefixo S3 dos artefatos | `models/latest` |
-
-### Comandos Makefile
-
-| Comando | Descrição |
-|---|---|
-| `make tf-init` | Inicializa o Terraform e conecta ao state remoto |
-| `make tf-plan` | Mostra o plano de execução |
-| `make tf-apply` | Provisiona toda a infraestrutura |
-| `make tf-destroy` | Destrói todos os recursos AWS |
-| `make ecr-push` | Build + push da imagem + reinicia o ECS service |
-| `make artifacts-push` | Upload manual dos artefatos para S3 |
 
 ---
 
 ## Dataset
 
-**Telco Customer Churn (IBM)** — 7.043 registros × 33 features
+**Telco Customer Churn (IBM)** — 7.043 registros × 33 features  
 Localização: `data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv`
 
-Para baixar novamente:
+O dataset é baixado automaticamente pelo `make init`. Para baixar manualmente:
 
 ```bash
 curl -L "https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv" \
@@ -349,7 +463,7 @@ curl -L "https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/mas
 
 ## Resultados
 
-Validação cruzada estratificada (StratifiedKFold, k=5) no conjunto de treino. Métricas reportadas como média dos folds.
+Validação cruzada estratificada (StratifiedKFold, k=5) no conjunto de treino.
 
 | Modelo | F1 | ROC-AUC | Precision | Recall |
 |---|---|---|---|---|
@@ -357,7 +471,8 @@ Validação cruzada estratificada (StratifiedKFold, k=5) no conjunto de treino. 
 | Logistic Regression | 0.639 | 0.856 | 0.532 | 0.800 |
 | **MLP — PyTorch** (produção) | **0.628** | **0.840** | **0.579** | **0.687** |
 
-O MLP apresenta precision superior (+4.7pp vs LR), reduzindo campanhas de retenção desnecessárias. O threshold padrão é 0.5 e pode ser ajustado via `THRESHOLD` em `api/main.py`.
+O MLP apresenta precision superior (+4.7pp vs LR), reduzindo campanhas de retenção desnecessárias.  
+O threshold é calibrado por análise de custo (FN=R$500, FP=R$50) e salvo em `data/processed/threshold.json`.
 
 ---
 

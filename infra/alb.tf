@@ -18,9 +18,10 @@ resource "aws_lb_target_group" "app" {
 
   health_check {
     path                = "/health"
-    healthy_threshold   = 2
+    healthy_threshold   = 3   # 3 checks consecutivos OK antes de marcar healthy
     unhealthy_threshold = 3
-    interval            = 30
+    interval            = 60  # 60s entre checks — tolera startup lento (download S3 + PyTorch load)
+    timeout             = 10
   }
 }
 

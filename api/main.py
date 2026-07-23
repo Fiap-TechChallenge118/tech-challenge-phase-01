@@ -11,6 +11,7 @@ from pathlib import Path
 import joblib
 import pandas as pd
 import torch
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
@@ -19,101 +20,102 @@ from src.model import ChurnMLP
 
 logger = logging.getLogger(__name__)
 
-# Quando rodando em Lambda, os artefatos são baixados do S3 para /tmp (único diretório gravável).
-# Localmente, usa data/processed/ gerado pelo src/pipeline.py.
-# A variável ARTIFACTS_BUCKET é injetada pelo Terraform como env var da Lambda.
-_LAMBDA = bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
-_LOCAL_DIR = Path("/tmp/artifacts") if _LAMBDA else Path("data/processed")
-_S3_BUCKET = os.environ.get("ARTIFACTS_BUCKET", "")
-_S3_PREFIX = os.environ.get("ARTIFACTS_PREFIX", "models/latest")
+load_dotenv()
 
-PREPROCESSOR_PATH = _LOCAL_DIR / "preprocessor.pkl"
-MODEL_PATH        = _LOCAL_DIR / "model.pth"
-THRESHOLD_PATH    = _LOCAL_DIR / "threshold.json"
-SCORES_DB_PATH    = Path("data/processed/scores.db")  # não disponível em Lambda — endpoint retorna 503
+PREPROCESSOR_PATH = Path(os.getenv("PREPROCESSOR_PATH", "data/processed/preprocessor.pkl"))
+MODEL_PATH        = Path(os.getenv("MODEL_PATH",        "data/processed/model.pth"))
+THRESHOLD_PATH    = Path(os.getenv("THRESHOLD_PATH",    "data/processed/threshold.json"))
+SCORES_DB_PATH    = Path(os.getenv("SCORES_DB_PATH",    "data/processed/scores.db"))
 
 # Estado global carregado no startup — evita re-load a cada request
 _state: dict = {"model": None, "preprocessor": None, "threshold": 0.5}
 
 
 def _download_artifacts_from_s3() -> None:
-    """Baixa os artefatos do S3 para /tmp/artifacts no cold start da Lambda.
+    """Baixa os artefatos do S3 para o diretório local no startup do container ECS.
 
-    /tmp é o único diretório gravável em Lambda.
-    Os arquivos ficam em cache entre invocações do mesmo container — o download só ocorre
-    no cold start, não em cada request.
+    Só executa quando ARTIFACTS_BUCKET está definido (ambiente AWS — ECS/Fargate).
+    Localmente, ARTIFACTS_BUCKET não está definido e a função retorna sem fazer nada,
+    mantendo o fluxo local inalterado (artefatos em data/processed/).
+
+    Os arquivos ficam em cache no sistema de arquivos do container entre requests —
+    o download ocorre apenas uma vez por ciclo de vida do container.
     """
-    import boto3
-
-    _LOCAL_DIR.mkdir(parents=True, exist_ok=True)
-    s3 = boto3.client("s3")
-    for filename in ("preprocessor.pkl", "model.pth", "threshold.json"):
-        dest = _LOCAL_DIR / filename
-        if not dest.exists():  # cache: não re-baixa se já está em /tmp do container quente
-            s3_key = f"{_S3_PREFIX}/{filename}"
-            logger.info("Baixando s3://%s/%s → %s", _S3_BUCKET, s3_key, dest)
-            s3.download_file(_S3_BUCKET, s3_key, str(dest))
-
-
-def _load_artifacts() -> None:
-    """Carrega preprocessor e modelo do disco para o estado global."""
-    if not (PREPROCESSOR_PATH.exists() and MODEL_PATH.exists()):
-        logger.warning("Artefatos não encontrados em %s", _LOCAL_DIR)
+    bucket = os.getenv("ARTIFACTS_BUCKET")
+    if not bucket:
+        # ? Ambiente local — artefatos já estão em data/processed/ gerados pelo pipeline
+        logger.debug("ARTIFACTS_BUCKET não definido — download S3 ignorado")
         return
 
-    preprocessor = joblib.load(PREPROCESSOR_PATH)
+    # ! Import lazy: boto3 não está nas dependências principais do pyproject.toml.
+    # Está disponível em qualquer ambiente AWS (ECS, Lambda, EC2) sem instalação adicional.
+    # Localmente, nunca chegamos aqui (ARTIFACTS_BUCKET não definido), então não há erro.
+    import boto3
 
-    input_dim = preprocessor.transform(
-        pd.DataFrame([{
-            "Gender": "Male", "Senior Citizen": "No", "Partner": "No",
-            "Dependents": "No", "Phone Service": "Yes", "Multiple Lines": "No",
-            "Internet Service": "DSL", "Online Security": "No", "Online Backup": "No",
-            "Device Protection": "No", "Tech Support": "No", "Streaming TV": "No",
-            "Streaming Movies": "No", "Contract": "Month-to-month",
-            "Paperless Billing": "Yes", "Payment Method": "Electronic check",
-            "Tenure Months": 1.0, "Monthly Charges": 50.0, "Total Charges": 50.0,
-        }])
-    ).shape[1]
+    prefix = os.getenv("ARTIFACTS_PREFIX", "models/latest")
+    s3 = boto3.client("s3")
+    PREPROCESSOR_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    model = ChurnMLP(input_dim=input_dim, hidden_dims=[64, 32], dropout=0.3)
-    model.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
-    model.eval()
-
-    if THRESHOLD_PATH.exists():
-        with open(THRESHOLD_PATH) as f:
-            _state["threshold"] = json.load(f).get("threshold", 0.5)
-
-    _state["model"] = model
-    _state["preprocessor"] = preprocessor
-    logger.info("Artefatos carregados — source=%s input_dim=%d threshold=%.4f",
-                "s3" if _LAMBDA else "local", input_dim, _state["threshold"])
-
-
-# Em Lambda, o carregamento acontece aqui — no escopo do módulo, durante o container init.
-# Isso ocorre ANTES de qualquer request chegar, portanto não está sujeito ao timeout
-# de 29s do API Gateway. Requests subsequentes encontram o modelo já em memória.
-# Localmente, o lifespan abaixo faz o mesmo trabalho.
-if _LAMBDA:
-    _download_artifacts_from_s3()
-    _load_artifacts()
-
-
-# Em Lambda, o carregamento acontece aqui — no escopo do módulo, durante o container init.
-# Isso ocorre ANTES de qualquer request chegar, portanto não está sujeito ao timeout
-# de 29s do API Gateway. Requests subsequentes encontram o modelo já em memória.
-# Localmente, o lifespan abaixo faz o mesmo trabalho.
-if _LAMBDA:
-    _download_artifacts_from_s3()
-    _load_artifacts()
+    for dest_path, filename in [
+        (PREPROCESSOR_PATH, "preprocessor.pkl"),
+        (MODEL_PATH,        "model.pth"),
+        (THRESHOLD_PATH,    "threshold.json"),
+    ]:
+        s3_key = f"{prefix}/{filename}"
+        try:
+            s3.download_file(bucket, s3_key, str(dest_path))
+            logger.info("Download concluído — s3://%s/%s → %s", bucket, s3_key, dest_path)
+        except Exception as exc:
+            # ! Falha não-fatal: loga e continua — o lifespan trata artefatos ausentes
+            logger.warning("Falha ao baixar s3://%s/%s: %s", bucket, s3_key, exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Carrega os artefatos no startup — usado apenas localmente (uvicorn).
-    Em Lambda o carregamento já ocorreu no escopo do módulo acima.
+    """Carrega os artefatos uma única vez no startup da aplicação.
+
+    Fluxo:
+        1. Tenta baixar artefatos do S3 (só executa no ECS, quando ARTIFACTS_BUCKET definido)
+        2. Carrega preprocessor e modelo do disco
+        3. Se os arquivos não existirem, a API sobe mas /predict retorna 503
     """
-    if not _LAMBDA:
-        _load_artifacts()
+    # * 1 — Baixar artefatos do S3 (ECS) ou usar locais (dev)
+    _download_artifacts_from_s3()
+
+    # * 2 — Carregar artefatos do disco para o estado global
+    if PREPROCESSOR_PATH.exists() and MODEL_PATH.exists():
+        preprocessor = joblib.load(PREPROCESSOR_PATH)
+
+        input_dim = preprocessor.transform(
+            pd.DataFrame([{
+                "Gender": "Male", "Senior Citizen": "No", "Partner": "No",
+                "Dependents": "No", "Phone Service": "Yes", "Multiple Lines": "No",
+                "Internet Service": "DSL", "Online Security": "No", "Online Backup": "No",
+                "Device Protection": "No", "Tech Support": "No", "Streaming TV": "No",
+                "Streaming Movies": "No", "Contract": "Month-to-month",
+                "Paperless Billing": "Yes", "Payment Method": "Electronic check",
+                "Tenure Months": 1.0, "Monthly Charges": 50.0, "Total Charges": 50.0,
+            }])
+        ).shape[1]
+
+        model = ChurnMLP(input_dim=input_dim, hidden_dims=[64, 32], dropout=0.3)
+        model.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
+        model.eval()
+
+        if THRESHOLD_PATH.exists():
+            with open(THRESHOLD_PATH) as f:
+                _state["threshold"] = json.load(f).get("threshold", 0.5)
+
+        _state["model"] = model
+        _state["preprocessor"] = preprocessor
+        logger.info(
+            "Artefatos carregados — source=%s input_dim=%d threshold=%.4f",
+            "s3" if os.getenv("ARTIFACTS_BUCKET") else "local",
+            input_dim,
+            _state["threshold"],
+        )
+    else:
+        logger.warning("Artefatos não encontrados em %s / %s", PREPROCESSOR_PATH, MODEL_PATH)
 
     yield
 

@@ -1,7 +1,11 @@
 # Copie este arquivo para terraform.tfvars e ajuste os valores
 # cp terraform.tfvars.example terraform.tfvars
+#
+# A região AWS é controlada pela variável TF_VAR_aws_region no .env
+# e sobrescreve o valor abaixo automaticamente.
 
-aws_region       = "us-east-2"
+aws_region       = "us-east-1"
 project_name     = "churn-mlp"
 image_tag        = "latest"
 artifacts_prefix = "models/latest"
+project_id       = "tc1"
