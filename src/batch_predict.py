@@ -99,4 +99,4 @@ def run_batch_predict(data_path: str) -> int:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
     n = run_batch_predict("data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv")
-    print(f"Scores calculados para {n} clientes -> {SCORES_DB_PATH}")
+    logger.info("Scores calculados para %d clientes → %s", n, SCORES_DB_PATH)

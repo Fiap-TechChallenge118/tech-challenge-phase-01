@@ -1,0 +1,15 @@
+# Copie este arquivo para terraform.tfvars e ajuste os valores
+# cp terraform.tfvars.example terraform.tfvars
+
+aws_region       = "us-east-1"
+project_name     = "churn-mlp"
+image_tag        = "latest"
+artifacts_prefix = "models/latest"
+project_id       = "tc1"
+
+
+aws elbv2 describe-load-balancers \
+    --names churn-mlp \
+    --region us-east-1 \
+    --query 'LoadBalancers[0].LoadBalancerArn' \
+    --output text

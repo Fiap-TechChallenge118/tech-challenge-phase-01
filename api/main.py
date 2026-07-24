@@ -22,9 +22,6 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
-
-# Paths dos artefatos — configuráveis via variáveis de ambiente
 PREPROCESSOR_PATH = Path(os.getenv("PREPROCESSOR_PATH", "data/processed/preprocessor.pkl"))
 MODEL_PATH        = Path(os.getenv("MODEL_PATH",        "data/processed/model.pth"))
 THRESHOLD_PATH    = Path(os.getenv("THRESHOLD_PATH",    "data/processed/threshold.json"))
@@ -34,18 +31,61 @@ SCORES_DB_PATH    = Path(os.getenv("SCORES_DB_PATH",    "data/processed/scores.d
 _state: dict = {"model": None, "preprocessor": None, "threshold": 0.5}
 
 
+def _download_artifacts_from_s3() -> None:
+    """Baixa os artefatos do S3 para o diretório local no startup do container ECS.
+
+    Só executa quando ARTIFACTS_BUCKET está definido (ambiente AWS — ECS/Fargate).
+    Localmente, ARTIFACTS_BUCKET não está definido e a função retorna sem fazer nada,
+    mantendo o fluxo local inalterado (artefatos em data/processed/).
+
+    Os arquivos ficam em cache no sistema de arquivos do container entre requests —
+    o download ocorre apenas uma vez por ciclo de vida do container.
+    """
+    bucket = os.getenv("ARTIFACTS_BUCKET")
+    if not bucket:
+        # ? Ambiente local — artefatos já estão em data/processed/ gerados pelo pipeline
+        logger.debug("ARTIFACTS_BUCKET não definido — download S3 ignorado")
+        return
+
+    # ! Import lazy: boto3 não está nas dependências principais do pyproject.toml.
+    # Está disponível em qualquer ambiente AWS (ECS, Lambda, EC2) sem instalação adicional.
+    # Localmente, nunca chegamos aqui (ARTIFACTS_BUCKET não definido), então não há erro.
+    import boto3
+
+    prefix = os.getenv("ARTIFACTS_PREFIX", "models/latest")
+    s3 = boto3.client("s3")
+    PREPROCESSOR_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    for dest_path, filename in [
+        (PREPROCESSOR_PATH, "preprocessor.pkl"),
+        (MODEL_PATH,        "model.pth"),
+        (THRESHOLD_PATH,    "threshold.json"),
+    ]:
+        s3_key = f"{prefix}/{filename}"
+        try:
+            s3.download_file(bucket, s3_key, str(dest_path))
+            logger.info("Download concluído — s3://%s/%s → %s", bucket, s3_key, dest_path)
+        except Exception as exc:
+            # ! Falha não-fatal: loga e continua — o lifespan trata artefatos ausentes
+            logger.warning("Falha ao baixar s3://%s/%s: %s", bucket, s3_key, exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Carrega os artefatos uma única vez no startup da aplicação.
 
-    Usar lifespan em vez de @app.on_event("startup") é a abordagem recomendada no FastAPI moderno.
-    Se os arquivos não existirem (ex: pipeline ainda não rodou), a API sobe mas /predict retorna 503.
+    Fluxo:
+        1. Tenta baixar artefatos do S3 (só executa no ECS, quando ARTIFACTS_BUCKET definido)
+        2. Carrega preprocessor e modelo do disco
+        3. Se os arquivos não existirem, a API sobe mas /predict retorna 503
     """
+    # * 1 — Baixar artefatos do S3 (ECS) ou usar locais (dev)
+    _download_artifacts_from_s3()
+
+    # * 2 — Carregar artefatos do disco para o estado global
     if PREPROCESSOR_PATH.exists() and MODEL_PATH.exists():
         preprocessor = joblib.load(PREPROCESSOR_PATH)
 
-        # Recria a arquitetura do modelo e carrega os pesos salvos pelo pipeline
-        # input_dim é inferido do preprocessor para não precisar hardcodar o valor
         input_dim = preprocessor.transform(
             pd.DataFrame([{
                 "Gender": "Male", "Senior Citizen": "No", "Partner": "No",
@@ -60,23 +100,25 @@ async def lifespan(app: FastAPI):
 
         model = ChurnMLP(input_dim=input_dim, hidden_dims=[64, 32], dropout=0.3)
         model.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
-        # model.eval() desativa Dropout e BatchNorm — obrigatório para inferência determinística
         model.eval()
 
         if THRESHOLD_PATH.exists():
             with open(THRESHOLD_PATH) as f:
                 _state["threshold"] = json.load(f).get("threshold", 0.5)
-        logger.info("Threshold carregado: %.4f", _state["threshold"])
 
         _state["model"] = model
         _state["preprocessor"] = preprocessor
-        logger.info("Artefatos carregados — input_dim=%d", input_dim)
+        logger.info(
+            "Artefatos carregados — source=%s input_dim=%d threshold=%.4f",
+            "s3" if os.getenv("ARTIFACTS_BUCKET") else "local",
+            input_dim,
+            _state["threshold"],
+        )
     else:
         logger.warning("Artefatos não encontrados em %s / %s", PREPROCESSOR_PATH, MODEL_PATH)
 
-    yield  # aplicação fica ativa aqui
+    yield
 
-    # cleanup ao desligar (não necessário para este caso, mas é boa prática)
     _state["model"] = None
     _state["preprocessor"] = None
 
@@ -221,9 +263,6 @@ def predict_batch_lookup(customer_id: str = Query(..., description="CustomerID d
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Captura exceções não tratadas e retorna 500 com log estruturado.
-
-    Sem isso, erros internos vão aparecer no log mas o cliente recebe uma resposta vazia.
-    """
+    """Captura exceções não tratadas e retorna 500 com log estruturado."""
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
