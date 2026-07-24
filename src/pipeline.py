@@ -82,7 +82,7 @@ def run_pipeline(data_path: str, config: dict | None = None) -> dict:
 
         # Registra o modelo PyTorch como artefato MLflow
         # isso permite carregar o modelo depois com mlflow.pytorch.load_model(run_uri)
-        mlflow.pytorch.log_model(model, "model")
+        mlflow.pytorch.log_model(model, "model", serialization_format="pickle")
 
         # --- 4. Salvar artefatos locais para a API ---
         ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)

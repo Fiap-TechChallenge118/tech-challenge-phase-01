@@ -15,9 +15,6 @@ data "aws_iam_policy_document" "ecs_trust" {
 data "aws_iam_policy_document" "s3_artifacts_read" {
   statement {
     actions   = ["s3:GetObject"]
-    resources = ["${data.aws_s3_bucket.artifacts.arn}/*"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/*"]
   }
 }
-
-# Identidade da conta AWS atual — usado para compor o nome do bucket de artefatos
-data "aws_caller_identity" "current" {}

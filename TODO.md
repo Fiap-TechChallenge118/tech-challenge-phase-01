@@ -251,27 +251,27 @@
 - [x] `api/main.py`: download automático dos artefatos do S3 no cold start da Lambda
 - [x] Adicionar targets no `Makefile`: `tf-init`, `tf-plan`, `tf-apply`, `tf-destroy`, `ecr-push`, `artifacts-push`
 - [x] Documentar deploy no `README.md`: passo a passo completo, fluxo de retreino, instruções para o time
-- [ ] Executar: `make tf-init && make tf-plan && make tf-apply`
-- [ ] Fazer push da imagem: `make ecr-push`
-- [ ] Testar endpoint público: `curl https://<api-id>.execute-api.<region>.amazonaws.com/health`
-- [ ] Commit: `feat: AWS deploy via Terraform (ECR + Lambda + API Gateway + S3 artifacts)`
+- [x] Executar: `make tf-init && make tf-plan && make tf-apply`
+- [x] Fazer push da imagem: `make ecr-push`
+- [x] Testar endpoint público: `curl https://<api-id>.execute-api.<region>.amazonaws.com/health`
+- [x] Commit: `feat: AWS deploy via Terraform (ECR + Lambda + API Gateway + S3 artifacts)`
 
 ### 4.6 Checklist Final e Entrega
-- [ ] Rodar checklist de qualidade:
+- [x] Rodar checklist de qualidade:
   - `ruff check .` → 0 erros
   - `pytest tests/ -v` → todos passando
   - `docker build -t churn-api .` → sem erros
   - `make train && make test && make run` → pipeline roda do zero
   - `grep -r "print(" src/ api/` → saída vazia (zero prints)
   - Nenhuma chave/secret hardcoded no código
-- [ ] Verificar histórico git: `git log --oneline` → commits semânticos limpos
-- [ ] Gravar vídeo 5 min (método STAR):
+- [x] Verificar histórico git: `git log --oneline` → commits semânticos limpos
+- [x] Gravar vídeo 5 min (método STAR):
   - **S**ituation: problema de churn na telecom
   - **T**ask: construir pipeline ML end-to-end com MLP
   - **A**ction: EDA → baselines → MLP → API → deploy
   - **R**esult: métricas finais, demo da API ao vivo, link do repo
-- [ ] Publicar repositório público no GitHub
-- [ ] Commit final: `docs: finalize README and model card`
+- [x] Publicar repositório público no GitHub
+- [x] Commit final: `docs: finalize README and model card`
 
 ---
 

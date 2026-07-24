@@ -12,7 +12,7 @@ ARTIFACTS_BUCKET := $(shell terraform -chdir=infra output -raw artifacts_bucket 
 ECS_CLUSTER      := $(shell terraform -chdir=infra output -raw ecs_cluster_name 2>/dev/null)
 ECS_SERVICE      := $(shell terraform -chdir=infra output -raw ecs_service_name 2>/dev/null)
 
-.PHONY: init deploy lint test run train batch tf-init tf-plan tf-apply tf-destroy ecr-push artifacts-push
+.PHONY: init deploy lint test run train batch tf-init tf-plan tf-apply tf-destroy ecr-push artifacts-push cleanup
 
 ## Fluxo completo de primeiro uso:
 ##   make init    -- baixa dataset + inicializa Terraform + provisiona infra
@@ -33,6 +33,14 @@ deploy: ## Treina o modelo, envia artefatos para S3, build/push da imagem e rein
 	@echo "[2/2] Build, push da imagem Docker e reinicializando ECS..."
 	$(MAKE) ecr-push
 	@echo "✓ deploy concluído"
+
+destroy: ## Destrói todos os recursos AWS e limpa o state local
+	@echo "Executando limpeza de recursos orphãos antes do destroy..."
+	@bash scripts/cleanup_aws.sh || true
+	@echo "Destruindo recursos gerenciados pelo Terraform..."
+	terraform -chdir=infra destroy -auto-approve
+	@rm -f infra/terraform.tfstate infra/terraform.tfstate.backup
+	@echo "✓ Infra destruida e state limpo"
 
 lint:
 	ruff check .
@@ -63,6 +71,12 @@ tf-apply:
 
 tf-destroy:
 	terraform -chdir=infra destroy -auto-approve
+
+
+cleanup: ## Remove recursos AWS orphãos (state desatualizado) e limpa o state local
+	@bash scripts/cleanup_aws.sh
+	@rm -f infra/terraform.tfstate infra/terraform.tfstate.backup
+	@echo "✓ Limpeza concluída -- rode make tf-apply para recriar a infra"
 
 # --- Docker + ECR ---
 

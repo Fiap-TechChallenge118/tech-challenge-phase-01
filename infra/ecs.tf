@@ -30,7 +30,7 @@ resource "aws_ecs_task_definition" "app" {
     }]
 
     environment = [
-      { name = "ARTIFACTS_BUCKET", value = data.aws_s3_bucket.artifacts.bucket },
+      { name = "ARTIFACTS_BUCKET", value = aws_s3_bucket.artifacts.bucket },
       { name = "ARTIFACTS_PREFIX", value = var.artifacts_prefix }
     ]
 
